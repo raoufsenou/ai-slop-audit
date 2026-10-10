@@ -5,8 +5,9 @@ its capture made beside it: its scripts, its facts file, and, in the UI audit, i
 [the report's folder](#the-reports-folder) describes; git ignores `reports/`. It is written for the
 maintainer, who reads it once and decides from it: for each thing that was rushed or never looked at, the
 current state, why it should be redone, and the new version. The records keep what it found. Never
-overwrite an earlier version's folder; a later run only tidies it. The `report` mode rewrites the latest
-version's page in place.
+overwrite an earlier version's folder; a later run only tidies it. The `report` and `reconcile` modes rewrite
+the latest version's page in place. The shared records' versions write theirs the same way, as
+[the shared report](#the-shared-report) describes.
 
 Both audits lay out their reports the same way. How to capture, and what a card's current state and new
 version are, is in the audit's own reference: [ui.md](ui.md) or [non-ui.md](non-ui.md). The checker holds a
@@ -63,8 +64,9 @@ The records are written in the auditor's words; the report is written in the mai
    - Left out on purpose: the config's out-of-scope list.
    - Left to the other audit, only when the run saw something that belongs to it: each thing, with where it
      was seen, so a run of that audit starts from it.
-   - Changed since the first draft, only when the `report` mode corrected the version: each finding
-     withdrawn, split, merged, or regraded, and why.
+   - Changed since the first draft, only when the `report` or `reconcile` mode corrected the version: each
+     finding withdrawn, split, merged, regraded, moved to the shared report, or cut down to its part in this
+     app, and why, linking the shared card that took it.
    - How it was captured: the commit, the data, the build, how paid and external calls were refused, every
      command in order, and where this audit sits in the project's plan.
 
@@ -116,6 +118,7 @@ The records are written in the auditor's words; the report is written in the mai
 | Marks in a drawing | `x-new` or `x-bad` with `data-x="label"`, `x-gap`, and `<div class="x-modal">` around the dialog's own markup | what changed, what is wrong, what the drawing leaves out, and a dialog open in place, however the app positions it |
 | Code | `<pre><code>`, with spans of class `del`, `add`, `c` (a comment), and `k` (a keyword) | the code as it is, and the change as a diff |
 | Measurements | `table.data`, and `bars` with `vp` marking the window's edge | numbers that compare |
+| Apps | `table.data.apps`, with a `<tr data-app="…">` for each app | in the shared report, every app a card's change reaches |
 | The app's words | `quote` | copy and messages exactly as they appear |
 | Room | `cmp` side by side, `cmp stack` one above the other, `cmp wide-new` | a wide drawing gets the width it needs: a whole window's drawing goes in `cmp stack`, since side by side it is too small to read |
 | A place | `loc` | the files and lines, or the screen and state |
@@ -195,6 +198,45 @@ are and what they are called, never what they record:
    and shows or links each screenshot it keeps.
 6. Run the checker with `--report`.
 
+## The shared report
+
+Each version of [the shared records](records.md#the-shared-records) writes its report from the same template,
+at `docs/audit/<audit>/shared/reports/vN/review.html`, and is held to everything above. What differs:
+
+- It is about the code the apps share. The title names the apps and that code; the lede says which version
+  of each app it reconciled; the pattern behind most of it names the shared code, or the copies, that caused
+  the findings.
+- Each card shows every app its change reaches, in a table after its why: one row for each app its record
+  lists, saying where it changes there, screen by screen, and naming each finding of that app's it took.
+
+  ```html
+  <table class="data apps">
+    <thead><tr><th>App</th><th>Where it changes</th><th>From</th></tr></thead>
+    <tbody>
+      <tr data-app="admin"><td>Admin</td><td>every page</td><td>A1, moved here</td></tr>
+      <tr data-app="bank"><td>Bank</td><td>the transfer page and its confirmation</td><td>A1, its frame</td></tr>
+    </tbody>
+  </table>
+  ```
+
+- Its current state is the shared code, with its path and lines, and the real thing in each app where the
+  apps show it differently. Its new version is the diff of the shared code, and a drawing in each app's
+  stylesheet where the apps' looks differ.
+- What was examined is the shared code, each part with the apps that use it, linking each shared finding
+  raised on it; then each app finding it accounted for, as moved, cut down, or kept local, with why.
+- How it was captured says which app versions it read and at which commit, and that it captured nothing.
+- Its folder keeps copies of what it shows from the apps' reports: each screenshot in `shots/`, named with its
+  app first, as `admin-settings-desktop.png`, and each app's built stylesheet, with the fonts and images it
+  loads, in `assets/<app>/`, named on each drawing with `data-css`. It has no `capture/`.
+
+After a reconcile, each app's report holds only what is the app's own:
+
+- A moved finding has no card. The row of what was examined that linked it links the shared card instead,
+  and the corrections appendix says where it went.
+- A cut-down finding's card holds only its part in this app, and links, within the card, each shared card
+  that took the rest.
+- Its screenshots stay in its `shots/`, linked where they were examined.
+
 ## Before handing it over
 
 - Open the page with `?all` at the end of its address, so every drawing loads at once, in a window 1440 px
@@ -207,7 +249,10 @@ are and what they are called, never what they record:
   state that is the real thing, a new version that is not only words, and a design choice's quote); that the
   coverage appendix links each new finding; that no `⟪…⟫` is left; that `report.css` and `report.js` are the
   skill's, unchanged, and loaded; and that the fonts and images the drawing stylesheets load resolve from
-  disk. In every version's folder it checks [the report's folder](#the-reports-folder): what is kept and
+  disk. When the audit has shared records, it checks that each shared card's table of apps has a row for each
+  app its record lists, naming each finding it took there, and that an app's report links the shared card
+  that took each of its findings, from within the card of one cut down. In every version's folder it checks
+  [the report's folder](#the-reports-folder): what is kept and
   how it is named, that the latest report shows or links every screenshot, that each file in `proof/` is one
   an eye proof records, and that an earlier version's report still finds every file it names.
 
