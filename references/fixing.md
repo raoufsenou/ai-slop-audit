@@ -4,8 +4,8 @@
 
 - A step is one row of the project's plan, or one item of the session's task list when the project has
   none. It names the finding IDs it closes, records them in its fix file,
-  `docs/audit/<app>/fixes/<STEP>.json`, one in the folder of each app whose findings it closes, and is
-  complete when their proofs pass and the project's own gates pass.
+  `docs/audit/<audit>/<app>/fixes/<STEP>.json`, one in the folder of each app whose findings it closes, and
+  is complete when their proofs pass and the project's own gates pass.
 - Order: the design authority first, so every later step builds what the document says; then shared
   foundations, such as tokens, the frame, and the module that words the backend's refusals; then the
   screens and modules that use them; then the tests that would have caught the findings, where the steps
@@ -32,7 +32,7 @@ kind's fields and what the checker confirms of it.
 | Text | `tools/ui/check-visual-system.mjs` holding its rule against a colour pair under 4.5:1, with `scripts/lint.mjs` holding the command that runs it; `.oxlintrc.json` holding the rule that refuses importing the engine outside `src/lib/engine` | rules across the code, through the check or lint rule that enforces them: contrast, tokens, sizes, architecture and boundaries |
 | Search | "that is not a version of a course" in `src`, which finds five lines at the audited commit and none now | facts about the files themselves: a name, a token, a copied pattern; never behaviour |
 | JSON | `package.json`, where `/devDependencies/typescript` resolves and `/dependencies/typescript` does not | package metadata and configuration |
-| Eye | `docs/audit/course/reports/v2/proof/C8.png`, compared with the proposal's mockup | taste, where nothing can be measured |
+| Eye | `docs/audit/ui/course/reports/v2/proof/C8.png`, compared with the proposal's mockup | taste in the UI audit, where nothing can be measured |
 
 A proof must be able to fail on the defect. Write the test before the fix and watch it fail, or measure the
 defect the test guards and put that measurement in the proof's `note`: "measured the rail at 906 px in its
@@ -45,7 +45,7 @@ proposal gives does not hold it open; if that detail breaks later, a later versi
 its own. So a title names each defect the finding is about, and nothing it is not.
 
 An eye proof is the last resort. It says what was compared with what, and it is never used where a
-measurement exists.
+measurement exists. Only the UI audit uses one.
 
 ## Closing a finding
 

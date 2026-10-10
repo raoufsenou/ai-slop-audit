@@ -1,7 +1,9 @@
 # The audit records
 
-One folder per audited app, committed, at `docs/audit/<app>/`. It is the memory of every audit: what each
-version found and re-checked, what the maintainer decided, and what each fix step closed and with what proof.
+One folder per audited app in each audit's records, committed: `docs/audit/ui/<app>/` for the UI audit and
+`docs/audit/non-ui/<app>/` for the non-UI audit. Both audits keep their records the same way, and neither
+reads the other's. An app's folder is the memory of that audit of the app: what each version found and
+re-checked, what the maintainer decided, and what each fix step closed and with what proof.
 Each audit, each round of verdicts, and each fix step is a file of its own, written once and never edited
 afterwards, so the folder's files are its history. No file states a finding's status: the checker works it
 out from them. The records hold no order of work. Steps live in the project's plan, and the records never
@@ -14,22 +16,24 @@ which the next version checks again.
 
 ```
 docs/audit/
-  <app>/                   one folder per audited app, named for it
-    config.json            the standards, the areas, and what the design leaves out
-    v1.json                audit v1: its commit, its report, and what it raised and cleared
-    v1-verdicts.json       the maintainer's first round of verdicts on v1, and the principles they settle
-    v1-verdicts-2.json     a second round on v1, when there is one
-    v2.json                audit v2: what it re-checked, proposed to reopen, raised, and cleared
-    fixes/
-      APP-AUDIT-SHELL.json one fix step, named for the plan row or task that made it
-    reports/               each version's report, which git ignores, as report.md describes
+  ui/                        the UI audit's records
+    <app>/                   one folder per audited app, named for it
+      config.json            the standards, the areas, and what the design leaves out
+      v1.json                audit v1: its commit, its report, and what it raised and cleared
+      v1-verdicts.json       the maintainer's first round of verdicts on v1, and the principles they settle
+      v1-verdicts-2.json     a second round on v1, when there is one
+      v2.json                audit v2: what it re-checked, proposed to reopen, raised, and cleared
+      fixes/
+        APP-AUDIT-SHELL.json one fix step, named for the plan row or task that made it
+      reports/               each version's report, which git ignores, as report.md describes
+  non-ui/                    the non-UI audit's records, laid out the same way
 ```
 
-No other file belongs in an app's folder, and nothing but the apps' folders belongs in `docs/audit/`; hidden
-files, such as `.DS_Store`, are ignored. The checker skips `reports/`, apart from the report `--report`
-checks, and refuses it unless git ignores it. Versions count from v1 without gaps, and records without v1
-are refused. Each version's rounds of verdicts count the same way: `vN-verdicts.json` first, then
-`vN-verdicts-2.json`.
+No other file belongs in an app's folder, nothing but `ui/` and `non-ui/` belongs in `docs/audit/`, and
+nothing but apps' folders belongs in either; hidden files, such as `.DS_Store`, are ignored. The checker
+skips `reports/`, apart from the report `--report` checks, and refuses it unless git ignores it. Versions
+count from v1 without gaps, and records without v1 are refused. Each version's rounds of verdicts count the
+same way: `vN-verdicts.json` first, then `vN-verdicts-2.json`.
 
 Every file is a JSON object. Every text field is a non-empty string, and a key the format does not name is
 refused, so a misspelt field fails instead of vanishing. A list a file has nothing for may be left out. Every
@@ -59,9 +63,10 @@ The bar every version judges by, written once and changed only by the maintainer
 }
 ```
 
-- `standards` names the design authority and defines each severity by the app's own users and their core
-  tasks. Other standards may follow, such as `realSize`, the data an audit seeds or copies, so every version
-  audits at the same size.
+- `standards` names the design authority, which for the UI audit is the design and for the non-UI audit the
+  document that says how the system is built, such as its architecture, and defines each severity by the
+  app's own users and their core tasks. Other standards may follow, such as `realSize`, the data an audit
+  seeds or copies, so every version audits at the same size.
 - `areas` gives each area of the app one or two capital letters other than `P`, which principles use, set by
   v1; every finding's ID starts with a declared letter. A later version adds a letter only for an area the app did not have, and never renames or
   reuses one. Areas may follow the app's structure (screens, layers) or the kinds of problem (words, states,
@@ -76,7 +81,7 @@ The bar every version judges by, written once and changed only by the maintainer
   "date": "2026-11-02",
   "commit": "1999623",
   "scope": "Every screen and state, on a copy of the real course",
-  "report": "docs/audit/course/reports/v2/review.html",
+  "report": "docs/audit/ui/course/reports/v2/review.html",
   "rechecked": [
     { "finding": "A2", "outcome": "holds", "observed": "the frame spec passes at 1999623" },
     { "finding": "B1", "outcome": "waiting", "observed": "the rail has not been redesigned" }
@@ -102,7 +107,7 @@ The bar every version judges by, written once and changed only by the maintainer
 | Key | Holds |
 | --- | --- |
 | `date`, `commit` | When it ran, and the commit it audited, not the one that recorded it; the commit must be in the repository. Dates never go back. |
-| `scope` | What it covered: every screen, state, and module, or the part the maintainer named. |
+| `scope` | What it covered: everything its audit covers, or the part the maintainer named. |
 | `report` | Its report, relative to the project's root; `--report` checks the latest version's. |
 | `note` | Optional: what a later reader needs to know about how this version was made, such as an import. |
 | `rechecked` | From v2 on, one entry for every finding still open, accepted, done, regressed, deferred, or triggered before it, saying what was observed. |
@@ -233,7 +238,7 @@ proof of a done finding, and each proof an accepted one has so far.
 | `search` | `patterns`, `paths`, `before`, `now`; optionally `fixed`, `word`, `glob` | the lines matching any pattern, counted across the files under `paths`, number `now` today and `before` at the audited commit | facts about the files themselves: a name, a token, a copied pattern; never behaviour |
 | `text` | `file`, `holds` | the file holds each string today, and did not hold them all at the audited commit | the check, lint rule, or configuration that enforces a rule, and the command that runs it |
 | `json` | `file`, `present`, `absent` | each JSON pointer in `present` resolves in the file today and none in `absent` does, which was not so at the audited commit; a pointer resolves only to a value that is not empty: not null, `""`, `[]`, or `{}` | package metadata and configuration |
-| `eye` | `compared`, `screenshot` | nothing: it records what was compared with what, and where the screenshot is | taste, where nothing can be measured |
+| `eye` | `compared`, `screenshot` | nothing: it records what was compared with what, and where the screenshot is; the non-UI audit's records refuse it | taste in the UI audit, where nothing can be measured |
 
 - The audited commit is the commit of the version the step follows.
 - A search's patterns are JavaScript regular expressions, or literal text with `fixed: true`. `word: true`
@@ -242,7 +247,8 @@ proof of a done finding, and each proof an accepted one has so far.
   commit, the files that commit holds there. Binary files are skipped. `before` and `now` differ, so a
   search that cannot fail is refused.
 - A test proof shows the test exists, not that it passes: the project's own gates run it.
-- An eye proof is the last resort, never used where a measurement exists.
+- An eye proof is the last resort, never used where a measurement exists, and only the UI audit's records
+  hold one.
 
 ## How status is worked out
 
