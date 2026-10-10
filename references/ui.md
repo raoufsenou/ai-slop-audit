@@ -11,9 +11,13 @@ belongs to the [non-UI audit](non-ui.md).
 - Serve copies of real data at real size, never the originals. Point every paid or external service at an
   address that refuses connections, such as `http://127.0.0.1:9`, so no click can spend money or send
   anything.
-- Capture with a script in the version's report folder, driving a browser through each screen and state at
-  1440 × 900 and 390 × 844: full-page and element screenshots, and the measurements each finding cites
-  (heights, contrast ratios, counts, durations) written to a facts file the report quotes.
+- Start from the app's routes, read from its router, and the states of each, so the report's coverage
+  appendix accounts for every one: captured, or not reached and why.
+- Capture with scripts in the report folder's `capture/`, numbered in the order they run, driving a browser
+  through each screen and state at 1440 × 900 and 390 × 844: full-page and element screenshots in `shots/`,
+  and the measurements each finding cites (heights, contrast ratios, counts, durations) in `facts.jsonl`,
+  from which each card takes the numbers it needs. [report.md](report.md) gives the folder's layout and its
+  names.
 - Prefer the project's own committed measuring tools where they exist. A measurement that will become a
   proof belongs in the project, not in the report's folder.
 - Write every command in the report's capture appendix, so the next version can repeat the capture.
@@ -33,6 +37,25 @@ size. Record it in the config's standards as `realSize` so every version audits 
 - Measure, do not characterise: page and pane heights (`document.documentElement.scrollHeight` and each
   scrolling element's `scrollHeight`), counts of repeated elements, widths that overflow. "19,057 px, 21
   windows at 900 px" is a finding; "long" is not.
+
+### What generation leaves behind
+
+An app generated in a hurry carries marks no one would have chosen. Each costs the user something, so none
+of them is taste.
+
+- Placeholder or invented content left on screen: sample names, made-up numbers and dates, lorem ipsum,
+  stock avatars, an example company, a count nothing counts.
+- Controls that look live and do nothing: a button without a handler, a link to `#`, a menu item that
+  opens nothing, a setting nothing reads.
+- Filler: a welcome that says nothing, a tagline, descriptions that would fit any app, an empty state that
+  apologises instead of offering the action that fills it.
+- Claims the app does not back: "secure", "real-time", "AI-powered", or a badge, a status, or a figure
+  that nothing measures.
+- Decoration with no job: gradients, glows, glass, emoji or icons as ornament, an animation on everything,
+  an illustration where the content should be.
+- One pattern stamped on every screen whatever it holds: a hero, three cards, a row of stat tiles, each
+  with its icon.
+- Words written for the builder, not the user: TODOs, debug output, "coming soon", a note left in the copy.
 
 ### Frame and navigation
 
@@ -108,27 +131,32 @@ A rushed build renders a state rather than designing it. For every screen, find 
 - What do they assert: words only, or also layout, overflow, contrast, and the states above?
 - Do they select by styling classes or headings, so a restyle breaks them and a defect does not?
 - Are they seeded at toy size?
-- For each finding, which test would fail on it? When none could, the finding says what its proof will be.
+- For each finding, which test would fail on it? When none could, its problem says so; what will prove it
+  fixed is agreed in the verdict's `doneWhen`.
 
 ## The pattern behind them
 
 After the findings, name the few causes behind most of them, each with the findings it explains. They are
 usually some of these: the backend's or the CLI's output ported into HTML instead of designed; a build made
-and checked at toy size; states rendered, not designed; the design's own pieces skipped; and nothing that
-could fail on any of it.
+and checked at toy size; states rendered, not designed; the design's own pieces skipped; content and
+controls generated and never looked at; and nothing that could fail on any of it.
 
 ## Not findings
 
 - What the config's out-of-scope list or the design leaves out on purpose.
-- Taste with no cost to a user that can be stated.
+- Taste with no cost to a user that can be stated. What generation leaves behind is not taste: placeholder
+  content misleads, a dead control wastes a click, and filler pushes the content down; state its cost.
 - What a principle or a rejection settled, unless there is new evidence; then it is a reopen proposal.
 - What an earlier version cleared, unless what it concerned has changed.
 
 ## A finding's card
 
-- Current is a screenshot from the capture, cropped to the part in question and labelled with its
-  measurement, or the frontend code quoted with its path and lines.
-- Draw the new version as HTML and CSS in the page whenever it is a question of design (layout, words,
-  states, the visual system), using the app's own tokens and type copied into the report's stylesheet, so
-  old and new compare at the same scale. Give code as code. A sentence is never the new version of a
-  screen.
+- Current is a screenshot from the capture whenever the problem shows on a screen: the part in question cut
+  with a band at real size, or the whole page in a scrolling box when its height is the problem, with its
+  measurement. The frontend code, quoted with its path and lines, joins it where the code is the cause, and
+  stands alone only for a problem no screen shows, such as a component written three times.
+- Draw the new version in a drawing frame, in the app's own markup and built stylesheet, at the width of its
+  screenshot, whenever it is a question of design (layout, words, states, the visual system), so old and
+  new compare at one scale. Where code makes it, give the change to that code beside the drawing,
+  as a diff. A sentence is never the new version of a screen, and neither is a sketch in the report's own
+  styles.
