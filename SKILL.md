@@ -1,6 +1,6 @@
 ---
 name: app-slop-audit
-description: Audit a built web app's UI for what was rushed or generated without judgment, or, when asked, what no screen shows, such as its backend, data, and code; keep every finding, verdict, and fix in committed records so repeated audits build on each other instead of changing their mind; and apply accepted fixes in tracked steps that each close with proof. Use when asked to find UI slop or rushed work in an app's screens, to run a non-UI audit of an app's backend, data, or code, to record verdicts on audit findings, to apply or verify audit fixes, to correct or rewrite the latest audit report without a new version, or to import an earlier audit report into the records.
+description: Audit a built web app's UI for what was rushed or generated without judgment, or, when asked, what no screen shows, such as its backend, data, and code; keep every finding, verdict, and fix in committed records so repeated audits build on each other instead of changing their mind; and apply accepted fixes in tracked steps that each close with proof. Use when asked to find UI slop or rushed work in an app's screens, to run a non-UI audit of an app's backend, data, or code, to record verdicts on audit findings, to apply or verify audit fixes, to correct or rewrite the latest audit report without a new version, to reconcile what several apps' audits found in the code they share into one shared record and report, or to import an earlier audit report into the records.
 ---
 
 # App Slop Audit
@@ -22,25 +22,27 @@ The skill is for the UI. It runs one of two audits, and the request says which:
 
 A problem a user can see on a screen belongs to the UI audit, wherever its cause lies; one no screen shows
 belongs to the non-UI audit. Each audit has its own records, `docs/audit/ui/<app>/` and
-`docs/audit/non-ui/<app>/`, with its own standards, areas, findings, verdicts, and fixes. Every run, in any
+`docs/audit/non-ui/<app>/`, and `docs/audit/<audit>/shared/` once its apps' findings are reconciled, with its
+own standards, areas, findings, verdicts, and fixes. Every run, in any
 mode, works on one audit: it reads, re-checks, decides, and fixes only that audit's findings, and leaves
 what belongs to the other to a run of it. A request that names neither is for the UI audit, unless it
 continues work on the non-UI audit's records, such as verdicts on its latest version.
 
 Read [records.md](references/records.md) before any mode. Read the audit's reference and
-[report.md](references/report.md) before `audit` and `report`, [report.md](references/report.md) before
-`import`, and [fixing.md](references/fixing.md) before `apply`.
+[report.md](references/report.md) before `audit`, `report`, and `reconcile`, [report.md](references/report.md)
+before `import`, and [fixing.md](references/fixing.md) before `apply`.
 
 The checker in `assets/checker/` is the only implementation of the records' rules. Run it from this skill's
 folder against the project; never copy it into a project:
 
 ```
-node <this skill>/assets/checker/check-records.mjs [ui|non-ui] [app] [--complete] [--report]
+node <this skill>/assets/checker/check-records.mjs [ui|non-ui] [app|shared] [--complete] [--report]
 ```
 
 With an audit and an app, it checks those records, `docs/audit/<audit>/<app>/` under the current directory,
 which is the project's root in a Git repository; with an audit alone, every app's records in it; with
-neither, every app's in both. Every run verifies each proof of a done or accepted finding against the
+neither, every app's in both. `shared` names the audit's shared records, which it checks against every app's
+records, as it checks each app's against them. Every run verifies each proof of a done or accepted finding against the
 files: it counts each search again, today and at the audited commit, and confirms each test is still
 declared under its title. `--report` also checks the latest version's report, as report.md describes;
 `--complete` also refuses any finding still open, accepted, regressed, or triggered, and any proposal still
@@ -56,24 +58,28 @@ otherwise `audit`.
   record both in the version's file, and stop for the maintainer's verdicts.
 - `report` — rewrite the latest version's report from its capture and records, before any verdict on it,
   correcting the version's file where the capture shows it wrong; no new version and no server.
+- `reconcile` — across an audit's apps, before any verdict on their latest versions: make each change to
+  the code they share one shared finding, in the audit's shared records and report, and cut each app's
+  findings and report down to what is its own; no capture and no server.
 - `decide` — record the maintainer's verdicts and the principles they settle.
 - `apply` — fix accepted findings in steps, each closing named findings with proof.
 - `import` — turn an audit made before this skill into the records' v1.
 
-Never combine `audit` or `report` with `decide` or `apply` in one pass. An audit ends at the maintainer's
-decision.
+Never combine `audit`, `report`, or `reconcile` with `decide` or `apply` in one pass. An audit ends at the
+maintainer's decision.
 
 ## One app or several
 
 Each audited app has its own folder in each audit's records, `docs/audit/<audit>/<app>/`, named for the
 app. It holds the app's records and, in `reports/`, which git ignores, each version's report. A single run
-and a fan-out write the same files.
+and a fan-out write the same files. Only `reconcile` writes the audit's shared records, in `shared/`.
 
 - A **single run** audits one app. This session does every step.
 - A **fan-out** audits several apps at once, in one audit, one agent per app, started by this session, the
   coordinator. Only `audit` and `report` fan out. `decide` stays in one session because the maintainer
   answers one question at a time, and `apply` because it changes code the apps may share. Either may write
-  in several apps' folders when one decision or one fix covers them.
+  in several apps' folders when one decision or one fix covers them. `reconcile` stays in one session too,
+  because it weighs every app's findings together.
 
 Before starting any agent, the coordinator:
 
@@ -106,11 +112,12 @@ Each agent runs the mode for its app, with four differences:
   app's run itself.
 
 When every app's run is done, the coordinator stops any servers it started, by their process IDs,
-closes the fan-out's entry where it recorded it, and runs the checker with `--report`. It gives the
-maintainer each app's report and summary, then the decisions one question at a time, naming each finding
-with its app, since every app counts its own IDs, and asking once about findings that several apps raised
-on the same shared code. Asked to commit, it commits its own changes first, then each app's records
-separately.
+closes the fan-out's entry where it recorded it, and runs `reconcile` itself, so each change to shared code
+reaches the maintainer once. It gives the maintainer the shared report and each app's report and summary,
+then the decisions one question at a time: the shared findings first, since an app's finding cut down to
+its own part depends on them, then each app's, naming each finding as shared or with its app, since every
+folder counts its own IDs. Asked to commit, it commits its own changes first, then the shared records, then
+each app's records separately.
 
 ## What keeps a run from changing its mind
 
@@ -119,10 +126,11 @@ it raised before. These rules exist to stop that; they are the point of the skil
 
 1. **The records come first, read whole.** The config's standards (the design authority and what each
    severity means), areas, and out-of-scope list, every principle, every cleared item, and every finding
-   bind the run.
+   bind the run, and so do the audit's shared records wherever the app uses the code they cover.
 2. **A finding keeps its ID for good.** Before raising anything, search the records for the same place and
-   the same problem. A match is the old ID, re-checked, never a new one. IDs are never reused or renumbered,
-   a withdrawn finding's included.
+   the same problem. A match is the old ID, re-checked, never a new one; a match in the shared records is
+   left to the next `reconcile`, which re-checks it. IDs are never reused or renumbered, a withdrawn
+   finding's included.
 3. **Decisions are reversed in the open, never silently.** A run that disagrees with a principle, a
    rejection, an exclusion, or a cleared item writes a reopen proposal giving evidence that did not exist
    when it was decided: the code changed, a new measurement, a user's report. Taste is not new evidence.
@@ -143,6 +151,8 @@ it raised before. These rules exist to stop that; they are the point of the skil
   address that refuses it. It never runs a paid operation.
 - `report` changes no tracked file except the latest version's file in the records, and a fan-out's entry
   where the project tracks work. It starts no server, and builds only as its step 5 allows.
+- `reconcile` changes no tracked file except the audit's shared records and the latest version's file of
+  each app it reconciles. It captures nothing, builds nothing, and starts no server.
 - If anyone outside the run is working in the project, another session or a person, write nothing there.
   Say so and stop. A fan-out's coordinator and agents are one run.
 - Commit nothing unless asked. The records are committed with the work that changes them; reports and
@@ -224,10 +234,55 @@ version or a server, so it runs straight after an audit and before anyone decide
 8. Stop, as step 9 of `audit` does: the report's path, what the correction changed, the findings by
    severity, what was not reached, and the decisions needed, ending on one question.
 
+## Mode: reconcile
+
+For an audit of apps that share code, after their latest versions and before any verdict on them. Each app's
+audit judged the shared code from its own screens, so the same change arrives several times, worded
+differently, and the same thing is built again in each app. One session reads every app's latest findings
+against the code they share, so each change to shared code becomes one finding, in the audit's shared
+records, designed for every app, decided once, fixed once, and re-checked once, and each app keeps only what
+is its own. It captures nothing and decides nothing.
+
+1. Read the project's instructions, the design authority, the plan, every app's records in the audit, and
+   the shared records when they exist. Run the checker for the audit with `--report`; an app it refuses
+   goes through `report` first. The versions to reconcile are each app's latest that no shared version has
+   reconciled. When there are none, say so and stop; when one of them has a round of verdicts, stop too:
+   the maintainer decided on its findings, and the app's next version is the one to reconcile.
+2. Find the code the apps share: each package or module two apps or more import, from their manifests and
+   imports, with what each app builds that a shared package already has or that another app built too. Read
+   it as it was at the commit those versions audited, or the newest of theirs when they differ: from the
+   working tree where it has not changed since, and otherwise from that commit with `git show`. When no
+   code is shared by two apps, say so and stop.
+3. From the shared records' v2 on, re-check every earlier shared finding first, as step 4 of `audit` does,
+   against the code and the apps' latest captures. Then go through the findings of the versions to
+   reconcile against that code. One that matches an earlier shared finding goes to it, and the re-check
+   names each app the shared finding now reaches. Otherwise a finding whose change belongs in shared code
+   becomes, with every other app's finding of the same change, one shared finding: its new version designed
+   for every app that uses the code, its `apps` every app it reaches, raised there or not, with where it
+   changes screen by screen, and its severity the highest it has in any of them by the shared standards.
+   The same thing built in several apps, or rebuilt beside what a shared package already has, becomes one
+   shared component. A finding that names shared code but whose change stays in its app stays local, with
+   why.
+4. Write the shared version, `docs/audit/<audit>/shared/vN.json`, as
+   [records.md](references/records.md) describes; on the first, `config.json` too, with the design authority
+   the apps share, the severities defined across their users, and areas of its own.
+5. Correct each app's latest version as records.md describes: withdraw each finding a shared finding took
+   whole, with `shared`; cut each one it took part of down to its part in the app, naming it in `shared`;
+   and add to the version's `note` when it was reconciled and what moved.
+6. Write the shared report, `docs/audit/<audit>/shared/reports/vN/review.html`, from the template, as
+   [report.md](references/report.md) describes, with copies of the screenshots and stylesheets it shows
+   from the apps' reports. Rewrite each corrected app's report in place, as report.md describes.
+7. Run the checker for the audit with `--report`, open the shared report as report.md describes, and fix
+   everything either shows.
+8. Stop: the shared report's path, what moved from each app, what stayed local and why, and the decisions
+   needed, the shared findings first, ending on one question.
+
 ## Mode: decide
 
 Write the round as a new file of the latest version, `vN-verdicts.json` for its first round and
-`vN-verdicts-2.json` and on after it, with the date and who decided. Never edit an earlier round.
+`vN-verdicts-2.json` and on after it, with the date and who decided. Never edit an earlier round. In an
+audit with shared records, decide the shared findings first, in a round of their own in `shared/`: an
+app's finding cut down to its own part depends on the shared finding that took the rest.
 
 1. For each finding the maintainer ruled on, a decision, with any departure from the proposal agreed then:
    - `accepted`, with `doneWhen`: the observable check that will say it is fixed.
@@ -245,15 +300,15 @@ Write the round as a new file of the latest version, `vN-verdicts.json` for its 
 
 Follow [fixing.md](references/fixing.md).
 
-1. Group the accepted findings into steps: design-authority changes first, then shared foundations, then
-   the screens and modules that use them, then the tests that would have caught them. Each step is small
-   enough to verify alone and names the finding IDs it closes.
+1. Group the accepted findings into steps: design-authority changes first, then shared foundations, the
+   accepted shared findings among them, then the screens and modules that use them, then the tests that
+   would have caught them. Each step is small enough to verify alone and names the finding IDs it closes.
 2. Put the steps where the project tracks work: rows of its execution plan when it has one, the session's
    task list otherwise. Never in the records, which hold no order of work.
 3. Rethink each new version rather than copying the proposal: measure what its callers and real data need.
    Record every departure from the proposal in the finding's entry in the step's fix file.
-4. Close each finding in the step's fix file, `docs/audit/<audit>/<app>/fixes/<STEP>.json`, with its
-   proofs: a test that fails without the fix, a search or a file's text for a fact about the files
+4. Close each finding in the step's fix file, `docs/audit/<audit>/<app>/fixes/<STEP>.json`, or
+   `docs/audit/<audit>/shared/fixes/<STEP>.json` for a shared finding, with its proofs: a test that fails without the fix, a search or a file's text for a fact about the files
    themselves, or, for a pure matter of taste in the UI audit, a look by eye recorded with its screenshot. A
    finding whose proofs cannot fail on each defect its title names stays `accepted`, its entry saying what
    is left.
