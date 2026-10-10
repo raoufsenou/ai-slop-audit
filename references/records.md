@@ -5,7 +5,8 @@ One folder per audited app in each audit's records, committed: `docs/audit/ui/<a
 reads the other's. An app's folder is the memory of that audit of the app: what each version found and
 re-checked, what the maintainer decided, and what each fix step closed and with what proof.
 Each audit, each round of verdicts, and each fix step is a file of its own, written once and never edited
-afterwards, so the folder's files are its history. No file states a finding's status: the checker works it
+afterwards, so the folder's files are its history; the one exception is a correction of the latest version
+before its first round of verdicts, described below. No file states a finding's status: the checker works it
 out from them. The records hold no order of work. Steps live in the project's plan, and the records never
 compete with it.
 
@@ -31,7 +32,7 @@ docs/audit/
 
 No other file belongs in an app's folder, nothing but `ui/` and `non-ui/` belongs in `docs/audit/`, and
 nothing but apps' folders belongs in either; hidden files, such as `.DS_Store`, are ignored. The checker
-skips `reports/`, apart from the report `--report` checks, and refuses it unless git ignores it. Versions
+skips `reports/`, apart from what `--report` checks there, and refuses it unless git ignores it. Versions
 count from v1 without gaps, and records without v1 are refused. Each version's rounds of verdicts count the
 same way: `vN-verdicts.json` first, then `vN-verdicts-2.json`.
 
@@ -100,6 +101,7 @@ The bar every version judges by, written once and changed only by the maintainer
       "proposal": "each known outcome as a sentence and an action, with the raw log under Technical details"
     }
   ],
+  "withdrawn": [{ "id": "B8", "why": "merged into B7: the run panel's exit codes are the same problem" }],
   "cleared": ["The engine's journal: one parser reads every line, and the app never writes it."]
 }
 ```
@@ -109,17 +111,18 @@ The bar every version judges by, written once and changed only by the maintainer
 | `date`, `commit` | When it ran, and the commit it audited, not the one that recorded it; the commit must be in the repository. Dates never go back. |
 | `scope` | What it covered: everything its audit covers, or the part the maintainer named. |
 | `report` | Its report, relative to the project's root; `--report` checks the latest version's. |
-| `note` | Optional: what a later reader needs to know about how this version was made, such as an import. |
+| `note` | Optional: what a later reader needs to know about how this version was made, such as an import, or a correction and what it changed. |
 | `rechecked` | From v2 on, one entry for every finding still open, accepted, done, regressed, deferred, or triggered before it, saying what was observed. |
 | `reopens` | Its proposals to reverse a decision, each with the evidence that did not exist when it was decided and a recommendation. |
 | `raised` | Its new findings. |
 | `cleared` | What it looked at and judged sound, including the candidates it dropped on review, so no later version raises them again without new evidence. |
+| `withdrawn` | Only from a correction: each finding it raised and withdrew before any verdict, with its `id` and `why`. |
 
 A raised finding:
 
 | Key | Holds |
 | --- | --- |
-| `id` | Its area's letter and the next number, such as `B7`: above every number an earlier version raised in that area. It belongs to this finding for good and is never reused or renumbered. |
+| `id` | Its area's letter and the next number, such as `B7`: above every number an earlier version raised or withdrew in that area. It belongs to this finding for good and is never reused or renumbered. |
 | `title` | Each defect it is about, and nothing it is not: its proofs must fail on each. |
 | `kind` | `defect`: the build is wrong or contradicts its own design. `design`: the design asked for this, so changing it is a decision. `missing`: neither designed nor built, but expected of any app. |
 | `severity` | `high`, `medium`, or `low`, by the config's standards. |
@@ -140,6 +143,21 @@ A re-check's outcome depends on where the finding stood:
 
 A proposal's `target` is a finding's ID, a principle's ID, `out of scope: ` followed by an item's `what` word
 for word, or `cleared in vN: ` followed by an earlier version's cleared item word for word.
+
+## Correcting the latest version
+
+Until the first round of verdicts on it, the latest version's file may be corrected; that is the `report`
+mode's work. Once a round exists, the file never changes again, and a later version corrects it in the open,
+by re-checking and raising.
+
+- A finding whose evidence does not hold, or that another already covers, is withdrawn: it leaves `raised`
+  and joins `withdrawn`, with `why`. One that proved sound is also among the cleared items, so no later run
+  raises it again; one merged into another names it in `why`. A withdrawn finding is no finding: nothing
+  re-checks, decides, or fixes it.
+- A finding that holds two problems keeps its ID for one; the other takes the next number in its area.
+- A finding the capture shows and the version missed takes the next number in its area.
+- No ID is reused or renumbered, and a withdrawn ID stays taken.
+- `date` and `commit` stay the capture's; `note` says when the version was corrected and what changed.
 
 ## vN-verdicts.json: a round of verdicts
 
@@ -276,5 +294,6 @@ of the latest version still waiting for its answer.
 
 It checks that a proof exists and could fail, not that it fails on each defect the finding's title names;
 that a test is declared, not that it passes; that a re-check is recorded, not that it was done; and that an
-ID is new, not that its problem is not already in the records under another; and that the config changed only
-by the maintainer's decision. Those are the auditor's to get right, and the next version re-checks them.
+ID is new, not that its problem is not already in the records under another; that the config changed only
+by the maintainer's decision; and that a version's file was corrected only before its first round of
+verdicts. Those are the auditor's to get right, and the next version re-checks them.
