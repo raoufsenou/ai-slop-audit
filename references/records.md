@@ -10,6 +10,9 @@ before its first round of verdicts, described below. No file states a finding's 
 out from them. The records hold no order of work. Steps live in the project's plan, and the records never
 compete with it.
 
+Once the `reconcile` mode has run, an audit also holds `shared/`: the records of what the code its apps share
+needs, kept the same way, as [the shared records](#the-shared-records) describes.
+
 The checker enforces everything below except what the last section lists, which is the auditor's job and
 which the next version checks again.
 
@@ -27,11 +30,13 @@ docs/audit/
       fixes/
         APP-AUDIT-SHELL.json one fix step, named for the plan row or task that made it
       reports/               each version's report, which git ignores, as report.md describes
+    shared/                  the records of the code the apps share, laid out as an app's folder is
   non-ui/                    the non-UI audit's records, laid out the same way
 ```
 
 No other file belongs in an app's folder, nothing but `ui/` and `non-ui/` belongs in `docs/audit/`, and
-nothing but apps' folders belongs in either; hidden files, such as `.DS_Store`, are ignored. The checker
+nothing but apps' folders and `shared/` belongs in either, so no app is named `shared`; hidden files, such as
+`.DS_Store`, are ignored. The checker
 skips `reports/`, apart from what `--report` checks there, and refuses it unless git ignores it. Versions
 count from v1 without gaps, and records without v1 are refused. Each version's rounds of verdicts count the
 same way: `vN-verdicts.json` first, then `vN-verdicts-2.json`.
@@ -116,7 +121,7 @@ The bar every version judges by, written once and changed only by the maintainer
 | `reopens` | Its proposals to reverse a decision, each with the evidence that did not exist when it was decided and a recommendation. |
 | `raised` | Its new findings. |
 | `cleared` | What it looked at and judged sound, including the candidates it dropped on review, so no later version raises them again without new evidence. |
-| `withdrawn` | Only from a correction: each finding it raised and withdrew before any verdict, with its `id` and `why`. |
+| `withdrawn` | Only from a correction: each finding it raised and withdrew before any verdict, with its `id` and `why`, and in an app's records `shared`, the shared finding that took all of it, when a reconcile moved it there. |
 
 A raised finding:
 
@@ -126,9 +131,10 @@ A raised finding:
 | `title` | Each defect it is about, and nothing it is not: its proofs must fail on each. |
 | `kind` | `defect`: the build is wrong or contradicts its own design. `design`: the design asked for this, so changing it is a decision. `missing`: neither designed nor built, but expected of any app. |
 | `severity` | `high`, `medium`, or `low`, by the config's standards. |
-| `where` | The files, screens, or states, precisely enough to look again. |
+| `where` | The files, screens, or states, precisely enough to look again. Code is named by its path from the project's root, or by its package's name. |
 | `problem` | What is wrong, with its measurement and how it was taken. A design finding quotes the design's sentence it questions. |
 | `proposal` | The new version, in words; the report draws it. |
+| `shared` | Optional, only in an app's records: each shared finding that took part of it, once a reconcile cut it down to its part in this app. |
 
 A re-check's outcome depends on where the finding stood:
 
@@ -146,9 +152,9 @@ for word, or `cleared in vN: ` followed by an earlier version's cleared item wor
 
 ## Correcting the latest version
 
-Until the first round of verdicts on it, the latest version's file may be corrected; that is the `report`
-mode's work. Once a round exists, the file never changes again, and a later version corrects it in the open,
-by re-checking and raising.
+Until the first round of verdicts on it, the latest version's file may be corrected; that is the work of the
+`report` and `reconcile` modes. Once a round exists, the file never changes again, and a later version
+corrects it in the open, by re-checking and raising.
 
 - A finding whose evidence does not hold, or that another already covers, is withdrawn: it leaves `raised`
   and joins `withdrawn`, with `why`. One that proved sound is also among the cleared items, so no later run
@@ -156,6 +162,8 @@ by re-checking and raising.
   re-checks, decides, or fixes it.
 - A finding that holds two problems keeps its ID for one; the other takes the next number in its area.
 - A finding the capture shows and the version missed takes the next number in its area.
+- A finding a shared finding took all of is withdrawn, with `shared`; one it took part of keeps its ID, is cut
+  down to its part in this app, and names in `shared` each shared finding that took the rest.
 - No ID is reused or renumbered, and a withdrawn ID stays taken.
 - `date` and `commit` stay the capture's; `note` says when the version was corrected and what changed.
 
@@ -290,10 +298,69 @@ re-check that found it regressed, counts toward closing it.
 `--complete` also refuses every finding that is open, accepted, regressed, or triggered, and every proposal
 of the latest version still waiting for its answer.
 
+## The shared records
+
+`docs/audit/<audit>/shared/` holds what the `reconcile` mode found in the code the audit's apps share: each
+change to shared code once, designed for every app that uses it, and each thing one app would copy from
+another, or rebuild beside what a shared package already has, as one shared component. Its files are an
+app's, written as above: a config whose standards hold for every app and whose areas are its own, versions,
+rounds of verdicts, and fix steps. A shared finding is decided once, fixed once, and re-checked once, by the
+next reconcile, and its ID is counted in `shared/` alone. A shared version also says what it reconciled:
+
+```json
+{
+  "date": "2026-10-12",
+  "commit": "84f0842",
+  "scope": "The code the apps share, against each app's latest findings",
+  "report": "docs/audit/ui/shared/reports/v1/review.html",
+  "reconciled": [{ "app": "admin", "version": 1 }, { "app": "bank", "version": 1 }],
+  "code": [{ "path": "packages/design", "package": "@shared/design", "apps": ["admin", "bank"] }],
+  "raised": [
+    {
+      "id": "F1",
+      "title": "Every page scrolls as one document",
+      "kind": "defect",
+      "severity": "high",
+      "where": "`packages/design/src/frame.tsx`, which every app's pages sit in",
+      "problem": "the frame has no height of its own, so the window scrolls and the header scrolls away",
+      "proposal": "the frame fills the window and only its content pane scrolls",
+      "apps": [
+        { "app": "admin", "where": "every page" },
+        { "app": "bank", "where": "the transfer page and its confirmation" }
+      ]
+    }
+  ],
+  "local": [{ "app": "bank", "finding": "B1", "why": "the labels are the bank's own words; the fields stay as they are" }]
+}
+```
+
+| Key | Holds |
+| --- | --- |
+| `reconciled` | Each app version it read, the latest of each app, by the app's folder and its version number. An app version is reconciled once, before its first round of verdicts. The shared version's `commit` is the one they audited, or the newest of theirs when they differ: the code it read. |
+| `code` | The code two apps or more use, each by its `path` from the project's root, its `package` name when it has one, and the `apps` that use it. |
+| `raised` | Its shared findings, each with `apps`: every app its change reaches, two or more, and `where` it changes there, screen by screen. |
+| `local` | Optional: each finding of a reconciled version that names shared code but whose change stays in its app, by `app` and `finding`, with `why`. |
+
+Each finding of a reconciled version whose `where` or `proposal` names a `code` entry, by its path or its
+package, is accounted for in one of three ways:
+
+- Moved: a shared finding took all of it. The app's version withdraws it, with `shared`, that finding's ID.
+- Cut down: a shared finding took part of it. It keeps its ID, its record holds only its part in this app,
+  and its `shared` names each shared finding that took the rest.
+- Local: its change stays in its app. The shared version lists it in `local`, with why.
+
+Only a reconciled app version names shared findings, and only ones that `shared/` raised and has not
+withdrawn. A shared finding's `apps` include every app it took a finding from in the versions its own shared
+version reconciled; a later reconcile that moves another app's finding into it says so in its re-check, since
+a decided version never changes. The checker reads every app's records when it checks `shared/`, and
+`shared/` when it checks an app's, and each must pass on its own first.
+
 ## What the checker cannot see
 
 It checks that a proof exists and could fail, not that it fails on each defect the finding's title names;
 that a test is declared, not that it passes; that a re-check is recorded, not that it was done; and that an
 ID is new, not that its problem is not already in the records under another; that the config changed only
-by the maintainer's decision; and that a version's file was corrected only before its first round of
-verdicts. Those are the auditor's to get right, and the next version re-checks them.
+by the maintainer's decision; that a version's file was corrected only before its first round of
+verdicts; and that a reconcile found every finding about shared code, since it holds to account only the
+findings whose place or proposal names code the shared version lists. Those are the auditor's to get right,
+and the next version re-checks them.
