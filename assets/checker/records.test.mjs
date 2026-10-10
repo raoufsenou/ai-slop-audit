@@ -31,7 +31,7 @@ function valid({ audited = 'ac386b3', later = '1999623' } = {}) {
       date: '2026-10-08',
       commit: audited,
       scope: 'Every screen and state',
-      report: 'docs/audit/course/reports/v1/review.html',
+      report: 'docs/audit/ui/course/reports/v1/review.html',
       raised: [
         {
           id: 'A1',
@@ -98,7 +98,7 @@ function valid({ audited = 'ac386b3', later = '1999623' } = {}) {
       date: '2026-11-02',
       commit: later,
       scope: 'Every screen and state',
-      report: 'docs/audit/course/reports/v2/review.html',
+      report: 'docs/audit/ui/course/reports/v2/review.html',
       rechecked: [
         { finding: 'A1', outcome: 'holds', observed: 'the frame spec passes' },
         { finding: 'B1', outcome: 'waiting', observed: 'the rail is unchanged' },
@@ -132,7 +132,7 @@ function withV3(records) {
     date: '2026-12-01',
     commit: '2a7f1c0',
     scope: 'Every screen and state',
-    report: 'docs/audit/course/reports/v3/review.html',
+    report: 'docs/audit/ui/course/reports/v3/review.html',
     rechecked: [
       { finding: 'A1', outcome: 'holds', observed: 'the frame spec passes' },
       { finding: 'B1', outcome: 'waiting', observed: 'the rail is unchanged' },
@@ -180,7 +180,7 @@ function write(root, path, text) {
   writeFileSync(join(root, path), text)
 }
 
-function writeRecords(root, records, folder = 'docs/audit/course') {
+function writeRecords(root, records, folder = 'docs/audit/ui/course') {
   for (const [name, data] of Object.entries(records)) write(root, `${folder}/${name}`, `${JSON.stringify(data, null, 2)}\n`)
 }
 
@@ -416,6 +416,14 @@ for (const [name, change, expected] of refusals) {
   test(`refused when ${name}`, () => assertRefused(variant(change), expected))
 }
 
+test("an eye proof belongs to the UI audit's records, and a non-UI audit's refuse it", () => {
+  const records = variant((r) => r['fixes/SHELL.json'].findings[0].proofs.push({ kind: 'eye', compared: 'the outline with its mockup', screenshot: 'docs/proof/A1.png' }))
+  assert.deepEqual(errorsOf(records), [])
+  assert.deepEqual(errorsOf(records, { audit: 'non-ui' }), [
+    "fixes/SHELL.json: A1's proofs[3] is an eye proof, which only the UI audit's records hold: a non-UI finding is proved by a test, a search, a file's text, or JSON",
+  ])
+})
+
 test('a records file that is not JSON is refused by name', () => {
   const files = filesOf(valid()).map((file) => (file.name === 'v2.json' ? { ...file, text: '{ "date": ' } : file))
   const { errors } = checkRecords(files)
@@ -563,8 +571,8 @@ test("a test is found by its exact title, whichever quotes declare it", () => {
 
 test('every proof of a done or partly fixed finding is verified against the files today and at the audited commit', () => {
   const { root } = project()
-  write(root, 'docs/audit/course/.DS_Store', 'not a records file')
-  const { errors, verified } = runCheck({ root, app: 'course' })
+  write(root, 'docs/audit/ui/course/.DS_Store', 'not a records file')
+  const { errors, verified } = runCheck({ root, audit: 'ui', app: 'course' })
   assert.deepEqual(errors, [])
   assert.equal(verified, 4)
 })
@@ -587,14 +595,14 @@ const proofRefusals = [
 for (const [name, change, expected] of proofRefusals) {
   test(`a proof is refused when ${name}`, () => {
     const { root, audited } = project(change)
-    const { errors } = runCheck({ root, app: 'course' })
+    const { errors } = runCheck({ root, audit: 'ui', app: 'course' })
     assert.ok(errors.some((error) => error.includes(expected(audited))), errors.join('\n') || '(none)')
   })
 }
 
 test('an empty value counts as none: a description that was "" did not hold at the audited commit', () => {
   const { root } = project((r) => Object.assign(r['fixes/SHELL.json'].findings[0].proofs[2], { present: ['/description'], absent: [] }))
-  assert.deepEqual(runCheck({ root, app: 'course' }).errors, [])
+  assert.deepEqual(runCheck({ root, audit: 'ui', app: 'course' }).errors, [])
 })
 
 const REPORT =
@@ -648,80 +656,100 @@ test('an id or a link written out in a code sample, a script, or a comment is te
 
 test('the report check reads the report the latest version names', () => {
   const { root } = project()
-  assert.deepEqual(runCheck({ root, app: 'course', report: true }).errors, [
-    "the latest version's report, docs/audit/course/reports/v2/review.html, does not exist",
+  assert.deepEqual(runCheck({ root, audit: 'ui', app: 'course', report: true }).errors, [
+    "the latest version's report, docs/audit/ui/course/reports/v2/review.html, does not exist",
   ])
-  write(root, '.gitignore', 'docs/audit/*/reports/\n')
-  write(root, 'docs/audit/course/reports/v2/review.html', REPORT)
-  write(root, 'docs/audit/course/reports/v2/shots/rail.png', 'png')
-  assert.deepEqual(runCheck({ root, app: 'course', report: true }).errors, [])
+  write(root, '.gitignore', 'docs/audit/*/*/reports/\n')
+  write(root, 'docs/audit/ui/course/reports/v2/review.html', REPORT)
+  write(root, 'docs/audit/ui/course/reports/v2/shots/rail.png', 'png')
+  assert.deepEqual(runCheck({ root, audit: 'ui', app: 'course', report: true }).errors, [])
 })
 
 test("an app's reports/ is no part of its records, and Git must ignore it", () => {
   const { root } = project()
-  write(root, 'docs/audit/course/reports/v2/review.html', REPORT)
-  assert.deepEqual(runCheck({ root, app: 'course' }).errors, [
-    'Git does not ignore docs/audit/course/reports/: add docs/audit/*/reports/ to .gitignore',
+  write(root, 'docs/audit/ui/course/reports/v2/review.html', REPORT)
+  assert.deepEqual(runCheck({ root, audit: 'ui', app: 'course' }).errors, [
+    'Git does not ignore docs/audit/ui/course/reports/: add docs/audit/*/*/reports/ to .gitignore',
   ])
-  write(root, '.gitignore', 'docs/audit/*/reports/\n')
-  assert.deepEqual(runCheck({ root, app: 'course' }).errors, [])
+  write(root, '.gitignore', 'docs/audit/*/*/reports/\n')
+  assert.deepEqual(runCheck({ root, audit: 'ui', app: 'course' }).errors, [])
 })
 
-test('without an app, every app in docs/audit/ is checked under its own name', () => {
+test('without an audit, every app of both audits is checked under its own name, and with one, its apps alone', () => {
   const { root, audited } = project()
   const bank = valid({ audited, later: audited })
   delete bank['config.json']
-  writeRecords(root, bank, 'docs/audit/bank')
+  writeRecords(root, bank, 'docs/audit/ui/bank')
+  writeRecords(root, valid({ audited, later: audited }), 'docs/audit/non-ui/course')
   write(root, 'docs/audit/.DS_Store', 'not a records file')
+  write(root, 'docs/audit/ui/.DS_Store', 'not a records file')
   const results = runChecks({ root })
   assert.deepEqual(
     results.map((result) => result.records),
-    ['docs/audit/bank', 'docs/audit/course'],
+    ['docs/audit/non-ui/course', 'docs/audit/ui/bank', 'docs/audit/ui/course'],
   )
-  assert.ok(results[0].errors.includes('there is no config.json'), results[0].errors.join('\n'))
-  assert.deepEqual(results[1].errors, [])
-  assert.equal(results[1].verified, 4)
+  assert.deepEqual(results[0].errors, [])
+  assert.ok(results[1].errors.includes('there is no config.json'), results[1].errors.join('\n'))
+  assert.deepEqual(results[2].errors, [])
+  assert.equal(results[2].verified, 4)
+  assert.deepEqual(
+    runChecks({ root, audit: 'ui' }).map((result) => result.records),
+    ['docs/audit/ui/bank', 'docs/audit/ui/course'],
+  )
 })
 
-test('records written directly in docs/audit/ are refused before any app is read', () => {
-  const root = temporaryRoot()
-  git(root, 'init', '-q')
-  writeRecords(root, valid(), 'docs/audit')
-  assert.deepEqual(runChecks({ root }), [
-    {
-      records: 'docs/audit',
-      errors: [
-        "docs/audit/ holds one folder per app, named for it, and nothing else, but it holds config.json, v1-verdicts.json, v1.json, v2-verdicts.json, v2.json: an app's records move, unchanged, into docs/audit/<app>/",
-      ],
-      summary: [],
-      verified: 0,
-    },
-  ])
-  assert.deepEqual(runChecks({ root: temporaryRoot() }), [
-    { records: 'docs/audit', errors: ['there are no records at docs/audit'], summary: [], verified: 0 },
-  ])
+test("records outside an audit's app folder are refused before any app is read, even when one app is named", () => {
+  const refusal = (records, error) => [{ records, errors: [error], summary: [], verified: 0 }]
+  const top = (holds) =>
+    refusal(
+      'docs/audit',
+      `docs/audit/ holds ui/ and non-ui/, one folder per audit, and nothing else, but it holds ${holds}: an app's records move, unchanged, into docs/audit/ui/<app>/, or into docs/audit/non-ui/<app>/ when they are a non-UI audit's`,
+    )
+  const flat = temporaryRoot()
+  git(flat, 'init', '-q')
+  writeRecords(flat, valid(), 'docs/audit')
+  const written = 'config.json, fixes, v1-verdicts.json, v1.json, v2-verdicts.json, v2.json'
+  assert.deepEqual(runChecks({ root: flat }), top(written))
+  assert.deepEqual(runChecks({ root: flat, audit: 'ui', app: 'course' }), top(written))
+  const byApp = temporaryRoot()
+  writeRecords(byApp, valid(), 'docs/audit/course')
+  assert.deepEqual(runChecks({ root: byApp }), top('course'))
+  const byAudit = temporaryRoot()
+  writeRecords(byAudit, valid(), 'docs/audit/ui')
+  assert.deepEqual(
+    runChecks({ root: byAudit, audit: 'ui' }),
+    refusal(
+      'docs/audit/ui',
+      "docs/audit/ui/ holds one folder per app, named for it, and nothing else, but it holds config.json, v1-verdicts.json, v1.json, v2-verdicts.json, v2.json: an app's records move, unchanged, into docs/audit/ui/<app>/",
+    ),
+  )
+  assert.deepEqual(runChecks({ root: temporaryRoot() }), refusal('docs/audit', 'there are no records at docs/audit'))
+  assert.deepEqual(runChecks({ root: temporaryRoot(), audit: 'non-ui' }), refusal('docs/audit/non-ui', 'there are no records at docs/audit/non-ui'))
 })
 
-test('the command reads every app or the one named, and its flags', () => {
-  assert.deepEqual(commandPlan([]), { app: null, complete: false, report: false })
-  assert.deepEqual(commandPlan(['course', '--complete', '--report']), { app: 'course', complete: true, report: true })
+test('the command reads the audit, then the app, each optional, and its flags', () => {
+  assert.deepEqual(commandPlan([]), { audit: null, app: null, complete: false, report: false })
+  assert.deepEqual(commandPlan(['non-ui']), { audit: 'non-ui', app: null, complete: false, report: false })
+  assert.deepEqual(commandPlan(['ui', 'course', '--complete', '--report']), { audit: 'ui', app: 'course', complete: true, report: true })
   assert.throws(() => commandPlan(['--strict']), /Unknown option --strict/)
-  assert.throws(() => commandPlan(['a', 'b']), /Usage/)
-  assert.throws(() => commandPlan(['docs/audit/course']), /docs\/audit\/course is not an app: name its folder in docs\/audit\//)
+  assert.throws(() => commandPlan(['course']), /course is not an audit: name ui or non-ui first/)
+  assert.throws(() => commandPlan(['ui', 'a', 'b']), /Usage/)
+  assert.throws(() => commandPlan(['ui', 'docs/audit/ui/course']), /docs\/audit\/ui\/course is not an app: name its folder in docs\/audit\/ui\//)
 })
 
 test('the command exits 0 on sound records, 1 on refused ones, and 2 on a usage error', () => {
   const { root } = project()
   const passed = spawnSync(process.execPath, [CLI], { cwd: root, encoding: 'utf8' })
   assert.equal(passed.status, 0, passed.stderr)
-  assert.match(passed.stdout, /^Audit records passed: docs\/audit\/course \(4 proofs verified\)\n4 findings in 2 areas/)
+  assert.match(passed.stdout, /^Audit records passed: docs\/audit\/ui\/course \(4 proofs verified\)\n4 findings in 2 areas/)
   assert.match(passed.stdout, /\ndone {10}1 {2}A1\n/)
-  const refused = spawnSync(process.execPath, [CLI, '--complete'], { cwd: root, encoding: 'utf8' })
+  const refused = spawnSync(process.execPath, [CLI, 'ui', '--complete'], { cwd: root, encoding: 'utf8' })
   assert.equal(refused.status, 1)
   assert.match(refused.stderr, /B2 is still accepted/)
-  const missing = spawnSync(process.execPath, [CLI, 'none'], { cwd: root, encoding: 'utf8' })
+  const missing = spawnSync(process.execPath, [CLI, 'ui', 'none'], { cwd: root, encoding: 'utf8' })
   assert.equal(missing.status, 1)
-  assert.match(missing.stderr, /there are no records at docs\/audit\/none/)
-  const misused = spawnSync(process.execPath, [CLI, '--strict'], { cwd: root, encoding: 'utf8' })
+  assert.match(missing.stderr, /there are no records at docs\/audit\/ui\/none/)
+  const misused = spawnSync(process.execPath, [CLI, 'none'], { cwd: root, encoding: 'utf8' })
   assert.equal(misused.status, 2)
+  assert.match(misused.stderr, /none is not an audit/)
 })

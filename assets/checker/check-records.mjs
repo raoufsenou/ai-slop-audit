@@ -7,22 +7,28 @@ import { fileURLToPath } from 'node:url'
 import { checkRecords, checkReport, proofsToVerify, statusTable, summarize, verifyProofs } from './records.mjs'
 
 const RECORDS = 'docs/audit'
+const AUDITS = ['ui', 'non-ui']
 const REPORTS = 'reports'
-const USAGE = 'Usage: node check-records.mjs [app] [--complete] [--report]'
+const USAGE = 'Usage: node check-records.mjs [ui|non-ui] [app] [--complete] [--report]'
 
 export function commandPlan(args) {
-  const plan = { app: null, complete: false, report: false }
-  const apps = []
+  const plan = { audit: null, app: null, complete: false, report: false }
+  const names = []
   for (const arg of args) {
     if (arg === '--complete') plan.complete = true
     else if (arg === '--report') plan.report = true
     else if (arg.startsWith('-')) throw new Error(`Unknown option ${arg}\n${USAGE}`)
-    else apps.push(arg)
+    else names.push(arg)
   }
-  if (apps.length > 1) throw new Error(USAGE)
-  if (apps.length === 1) {
-    if (/[\\/]/.test(apps[0]) || apps[0].startsWith('.')) throw new Error(`${apps[0]} is not an app: name its folder in ${RECORDS}/\n${USAGE}`)
-    plan.app = apps[0]
+  if (names.length > 2) throw new Error(USAGE)
+  const [audit, app] = names
+  if (audit !== undefined) {
+    if (!AUDITS.includes(audit)) throw new Error(`${audit} is not an audit: name ui or non-ui first\n${USAGE}`)
+    plan.audit = audit
+  }
+  if (app !== undefined) {
+    if (/[\\/]/.test(app) || app.startsWith('.')) throw new Error(`${app} is not an app: name its folder in ${RECORDS}/${audit}/\n${USAGE}`)
+    plan.app = app
   }
   return plan
 }
@@ -115,14 +121,14 @@ export function projectLook(root) {
   }
 }
 
-export function runCheck({ root, app, complete = false, report = false, look = projectLook(root) }) {
-  const records = `${RECORDS}/${app}`
+export function runCheck({ root, audit, app, complete = false, report = false, look = projectLook(root) }) {
+  const records = `${RECORDS}/${audit}/${app}`
   const folder = resolve(root, records)
   if (!existsSync(folder) || !statSync(folder).isDirectory()) return { errors: [`there are no records at ${records}`], summary: [], verified: 0 }
-  const result = checkRecords(readFolder(folder), { complete })
+  const result = checkRecords(readFolder(folder), { complete, audit })
   const errors = [...result.errors]
   const reports = `${records}/${REPORTS}`
-  if (existsSync(resolve(root, reports)) && !look.ignores(reports)) errors.push(`Git does not ignore ${reports}/: add ${RECORDS}/*/${REPORTS}/ to .gitignore`)
+  if (existsSync(resolve(root, reports)) && !look.ignores(reports)) errors.push(`Git does not ignore ${reports}/: add ${RECORDS}/*/*/${REPORTS}/ to .gitignore`)
   let verified = 0
   if (errors.length === 0) {
     for (const version of result.records.versions) {
@@ -146,19 +152,37 @@ export function runCheck({ root, app, complete = false, report = false, look = p
   return { errors, summary: errors.length === 0 ? [...summarize(result.records), ...statusTable(result.records)] : [], verified }
 }
 
-// The app named, or every app in docs/audit/, which holds one folder per app, named for it, and nothing else.
-export function runChecks({ root, app = null, complete = false, report = false, look = projectLook(root) }) {
-  const check = (name) => ({ records: `${RECORDS}/${name}`, ...runCheck({ root, app: name, complete, report, look }) })
-  if (app !== null) return [check(app)]
-  const folder = resolve(root, RECORDS)
-  const entries = existsSync(folder) && statSync(folder).isDirectory() ? readdirSync(folder, { withFileTypes: true }).filter((entry) => !entry.name.startsWith('.')) : []
-  const files = entries.filter((entry) => !entry.isDirectory()).map((entry) => entry.name)
-  const refused = (error) => [{ records: RECORDS, errors: [error], summary: [], verified: 0 }]
-  if (entries.length === 0) return refused(`there are no records at ${RECORDS}`)
-  if (files.length > 0) {
-    return refused(`${RECORDS}/ holds one folder per app, named for it, and nothing else, but it holds ${files.sort().join(', ')}: an app's records move, unchanged, into ${RECORDS}/<app>/`)
+// What a folder under the root holds, hidden files aside, or nothing when it does not exist.
+function entriesOf(root, path) {
+  const folder = resolve(root, path)
+  return existsSync(folder) && statSync(folder).isDirectory() ? readdirSync(folder, { withFileTypes: true }).filter((entry) => !entry.name.startsWith('.')) : []
+}
+
+// The app named, or every app, of the audit named, or of both. docs/audit/ holds one folder per audit, ui/ and
+// non-ui/, and each of them one folder per app, named for it; neither holds anything else.
+export function runChecks({ root, audit = null, app = null, complete = false, report = false, look = projectLook(root) }) {
+  const refused = (records, error) => [{ records, errors: [error], summary: [], verified: 0 }]
+  const top = entriesOf(root, RECORDS)
+  const strays = top.filter((entry) => !entry.isDirectory() || !AUDITS.includes(entry.name)).map((entry) => entry.name)
+  if (strays.length > 0) {
+    return refused(
+      RECORDS,
+      `${RECORDS}/ holds ui/ and non-ui/, one folder per audit, and nothing else, but it holds ${strays.sort().join(', ')}: an app's records move, unchanged, into ${RECORDS}/ui/<app>/, or into ${RECORDS}/non-ui/<app>/ when they are a non-UI audit's`,
+    )
   }
-  return entries.map((entry) => entry.name).sort().map(check)
+  const audits = audit !== null ? [audit] : top.map((entry) => entry.name).sort()
+  if (audits.length === 0) return refused(RECORDS, `there are no records at ${RECORDS}`)
+  return audits.flatMap((each) => {
+    const folder = `${RECORDS}/${each}`
+    const entries = entriesOf(root, folder)
+    const files = entries.filter((entry) => !entry.isDirectory()).map((entry) => entry.name)
+    if (files.length > 0) {
+      return refused(folder, `${folder}/ holds one folder per app, named for it, and nothing else, but it holds ${files.sort().join(', ')}: an app's records move, unchanged, into ${folder}/<app>/`)
+    }
+    const apps = app !== null ? [app] : entries.map((entry) => entry.name).sort()
+    if (apps.length === 0) return refused(folder, `there are no records at ${folder}`)
+    return apps.map((name) => ({ records: `${folder}/${name}`, ...runCheck({ root, audit: each, app: name, complete, report, look }) }))
+  })
 }
 
 function main() {

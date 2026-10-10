@@ -569,7 +569,7 @@ function readPrinciples(records, name, entries, answers, errors) {
   return written
 }
 
-function readProof(proof, where, errors) {
+function readProof(proof, where, errors, audit) {
   if (!isObject(proof)) {
     errors.push(`${where} is not an object`)
     return false
@@ -577,6 +577,10 @@ function readProof(proof, where, errors) {
   const shape = PROOF_SHAPES[proof.kind]
   if (!shape) {
     errors.push(`${where} has kind "${proof.kind}"; the kinds are ${Object.keys(PROOF_SHAPES).join(', ')}`)
+    return false
+  }
+  if (proof.kind === 'eye' && audit === 'non-ui') {
+    errors.push(`${where} is an eye proof, which only the UI audit's records hold: a non-UI finding is proved by a test, a search, a file's text, or JSON`)
     return false
   }
   if (!checkShape(proof, shape, where, errors)) return false
@@ -623,7 +627,7 @@ function readFix(records, version, { name, step, data }, errors) {
       continue
     }
     const given = entry.proofs ?? []
-    const proofs = given.filter((proof, at) => readProof(proof, `${name}: ${entry.id}'s proofs[${at}]`, errors))
+    const proofs = given.filter((proof, at) => readProof(proof, `${name}: ${entry.id}'s proofs[${at}]`, errors, records.audit))
     if (!has(entry, 'left') && given.length === 0) {
       errors.push(`${name} closes ${entry.id} without a proof; an entry that closes its finding has at least one, and one that does not says what is left`)
     }
@@ -683,10 +687,11 @@ function finish(records, errors, complete) {
   }
 }
 
-export function checkRecords(files, { complete = false } = {}) {
+export function checkRecords(files, { complete = false, audit = 'ui' } = {}) {
   const errors = []
   const read = readFiles(files, errors)
   const records = {
+    audit,
     config: readConfig(read.config, errors),
     versions: [],
     findings: new Map(),
