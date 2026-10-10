@@ -75,11 +75,13 @@ const SHAPES = {
     'rechecked?': 'list',
     'reopens?': 'list',
     'raised?': 'list',
+    'withdrawn?': 'list',
     'cleared?': 'texts',
   },
   recheck: { finding: 'text', outcome: 'text', observed: 'text' },
   proposal: { target: 'text', evidence: 'text', recommendation: 'text' },
   finding: { id: 'text', title: 'text', kind: 'text', severity: 'text', where: 'text', problem: 'text', proposal: 'text' },
+  withdrawal: { id: 'text', why: 'text' },
   round: {
     date: 'date',
     by: 'text',
@@ -268,6 +270,7 @@ function readAudit(records, number, data, errors) {
     commit: null,
     report: null,
     raised: [],
+    withdrawn: [],
     rechecked: [],
     proposals: new Map(),
     cleared: [],
@@ -285,6 +288,7 @@ function readAudit(records, number, data, errors) {
   readRechecks(records, version, data.rechecked ?? [], errors)
   readProposals(records, version, data.reopens ?? [], errors)
   readRaised(records, version, data.raised ?? [], errors)
+  readWithdrawn(records, version, data.withdrawn ?? [], errors)
   const cleared = new Set()
   for (const item of version.cleared) {
     if (cleared.has(item)) errors.push(`${version.name} clears "${item}" twice`)
@@ -381,7 +385,7 @@ function readProposals(records, version, entries, errors) {
 
 function readRaised(records, version, entries, errors) {
   const highest = new Map()
-  for (const id of records.findings.keys()) {
+  for (const id of [...records.findings.keys(), ...records.withdrawn.keys()]) {
     const [, letter, number] = FINDING_ID.exec(id)
     highest.set(letter, Math.max(highest.get(letter) ?? 0, Number(number)))
   }
@@ -399,13 +403,18 @@ function readRaised(records, version, entries, errors) {
       errors.push(`${version.name} raises ${entry.id}, which ${by} already raised; an ID belongs to one finding for good`)
       continue
     }
+    if (records.withdrawn.has(entry.id)) {
+      errors.push(`${version.name} raises ${entry.id}, which v${records.withdrawn.get(entry.id)} withdrew; a withdrawn ID is never reused`)
+      continue
+    }
     const [, letter, number] = id
     if (records.config && !records.config.areas.has(letter)) {
       errors.push(`${version.name} raises ${entry.id} in area ${letter}, which config.json does not declare`)
     }
     if (Number(number) <= (highest.get(letter) ?? 0)) {
+      const top = `${letter}${highest.get(letter)}`
       errors.push(
-        `${version.name} raises ${entry.id}, numbered below ${letter}${highest.get(letter)}, which an earlier version raised; a new finding takes the next number in its area`,
+        `${version.name} raises ${entry.id}, numbered below ${top}, which an earlier version ${records.withdrawn.has(top) ? 'withdrew' : 'raised'}; a new finding takes the next number in its area`,
       )
     }
     if (!KINDS.includes(entry.kind)) errors.push(`${version.name}: ${entry.id} has kind "${entry.kind}"; the kinds are ${KINDS.join(', ')}`)
@@ -423,6 +432,53 @@ function readRaised(records, version, entries, errors) {
       entries: [],
     })
     version.raised.push(entry.id)
+  }
+}
+
+// A correction withdraws a finding its own version raised: the ID leaves raised, stays taken, and is no finding.
+function readWithdrawn(records, version, entries, errors) {
+  const highest = new Map()
+  const earlier = [
+    ...[...records.findings.values()].filter((finding) => finding.raisedIn < version.number).map((finding) => finding.id),
+    ...records.withdrawn.keys(),
+  ]
+  for (const id of earlier) {
+    const [, letter, number] = FINDING_ID.exec(id)
+    highest.set(letter, Math.max(highest.get(letter) ?? 0, Number(number)))
+  }
+  for (const [index, entry] of entries.entries()) {
+    const where = `${version.name}: withdrawn[${index}]`
+    if (!checkShape(entry, SHAPES.withdrawal, where, errors)) continue
+    const id = FINDING_ID.exec(entry.id)
+    if (!id || PRINCIPLE_ID.test(entry.id)) {
+      errors.push(`${where}'s id "${entry.id}" is not an area's letter and a number, such as B7`)
+      continue
+    }
+    const raised = records.findings.get(entry.id)
+    if (raised?.raisedIn === version.number) {
+      errors.push(`${version.name} withdraws ${entry.id}, which it also raises; a withdrawn finding leaves raised`)
+      continue
+    }
+    if (raised) {
+      errors.push(`${version.name} withdraws ${entry.id}, which v${raised.raisedIn} raised; a later version re-checks it, as obsolete when it no longer applies`)
+      continue
+    }
+    if (records.withdrawn.has(entry.id)) {
+      const by = records.withdrawn.get(entry.id) === version.number ? 'it' : `v${records.withdrawn.get(entry.id)}`
+      errors.push(`${version.name} withdraws ${entry.id}, which ${by} already withdrew`)
+      continue
+    }
+    const [, letter, number] = id
+    if (records.config && !records.config.areas.has(letter)) {
+      errors.push(`${version.name} withdraws ${entry.id} in area ${letter}, which config.json does not declare`)
+    }
+    if (Number(number) <= (highest.get(letter) ?? 0)) {
+      errors.push(
+        `${version.name} withdraws ${entry.id}, numbered below ${letter}${highest.get(letter)}, which an earlier version took; a version withdraws only what it raised`,
+      )
+    }
+    records.withdrawn.set(entry.id, version.number)
+    version.withdrawn.push(entry.id)
   }
 }
 
@@ -695,6 +751,7 @@ export function checkRecords(files, { complete = false, audit = 'ui' } = {}) {
     config: readConfig(read.config, errors),
     versions: [],
     findings: new Map(),
+    withdrawn: new Map(),
     principles: new Map(),
     earlierSteps: [],
     lastDated: null,
@@ -895,6 +952,7 @@ export function summarize(records) {
       SEVERITIES,
     )
     const parts = [`raised ${version.raised.length}${severities ? ` (${severities})` : ''}`]
+    if (version.withdrawn.length > 0) parts.push(`withdrew ${version.withdrawn.length}`)
     if (version.rechecked.length > 0) {
       parts.push(`re-checked ${version.rechecked.length}: ${tally(version.rechecked.map((entry) => entry.outcome), OUTCOMES)}`)
     }
@@ -928,13 +986,26 @@ export function statusTable(records) {
   ]
 }
 
-const TAG = /<[a-z][a-z0-9-]*((?:\s+[^\s"'<>/=]+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'<>=`]+))?)*)\s*\/?>/gi
+const TAG = /<([a-z][a-z0-9-]*)((?:\s+[^\s"'<>/=]+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'<>=`]+))?)*)\s*\/?>/gi
 const ATTRIBUTE = /([^\s"'<>/=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'<>=`]+)))?/g
+const EXTERNAL = /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i
+const CSS_URL = /url\(\s*(['"]?)([^'")]*)\1\s*\)/g
+const PLACEHOLDER = /⟪[^⟫]*⟫?/g
+
+// The files a report this skill wrote copies, unchanged, from the skill's assets/report/, each with the element and
+// the attribute that load it.
+export const TEMPLATE = { 'report.css': ['link', 'href'], 'report.js': ['script', 'src'] }
+
+// What a card's kind tag reads, for each kind.
+const KIND_TAGS = { defect: 'Build defect', design: 'Design choice', missing: 'Not built' }
+
+// The markup without its comments, or the contents of its scripts and styles, which are text.
+const strip = (html) => html.replace(/<!--[\s\S]*?-->/g, '').replace(/(<(script|style)\b[^>]*>)[\s\S]*?(<\/\2\s*>)/gi, '$1$3')
 
 function attributes(html, wanted) {
-  const markup = html.replace(/<!--[\s\S]*?-->/g, '').replace(/(<(script|style)\b[^>]*>)[\s\S]*?(<\/\2\s*>)/gi, '$1$3')
+  const markup = strip(html)
   const found = []
-  for (const [, list] of markup.matchAll(TAG)) {
+  for (const [, , list] of markup.matchAll(TAG)) {
     for (const [, name, ...values] of list.matchAll(ATTRIBUTE)) {
       if (wanted.includes(name.toLowerCase())) found.push([name.toLowerCase(), values.find((value) => value !== undefined) ?? ''])
     }
@@ -942,12 +1013,68 @@ function attributes(html, wanted) {
   return found
 }
 
-// exists(path) answers whether a path the report refers to, relative to the report, exists.
-export function checkReport(records, html, exists) {
+// Each opening tag of the markup: its name, its attributes, and where it starts and ends.
+function tagsOf(markup) {
+  return [...markup.matchAll(TAG)].map((match) => ({
+    name: match[1].toLowerCase(),
+    at: match.index,
+    end: match.index + match[0].length,
+    attributes: new Map(
+      [...match[2].matchAll(ATTRIBUTE)].map(([, name, ...values]) => [name.toLowerCase(), values.find((value) => value !== undefined) ?? '']),
+    ),
+  }))
+}
+
+const tokens = (tag, attribute) => (tag.attributes.get(attribute) ?? '').split(/\s+/).filter(Boolean)
+const isClassed = (tag, ...names) => names.every((name) => tokens(tag, 'class').includes(name))
+
+// The tags inside the element a tag opens, up to where it closes, counting the elements of its name opened in it.
+function within(tags, markup, tag) {
+  const pattern = new RegExp(`<(/?)${tag.name}\\b[^>]*>`, 'gi')
+  pattern.lastIndex = tag.end
+  let end = markup.length
+  let depth = 1
+  for (let match = pattern.exec(markup); match; match = pattern.exec(markup)) {
+    depth += match[1] ? -1 : 1
+    if (depth === 0) {
+      end = match.index
+      break
+    }
+  }
+  return tags.filter((other) => other.at > tag.at && other.at < end)
+}
+
+// The text an element holds before its first child.
+function textOf(markup, tag) {
+  const end = markup.indexOf('<', tag.end)
+  return markup.slice(tag.end, end === -1 ? markup.length : end).replace(/\s+/g, ' ').trim()
+}
+
+// The path a reference names, relative to where it is written, or null for an anchor or an address elsewhere.
+function localPath(target) {
+  if (target.startsWith('#') || EXTERNAL.test(target)) return null
+  return decodeURI(target.split(/[?#]/)[0]) || null
+}
+
+// What shows a current state as it is, and what shows a new version, beyond words.
+const showsCurrent = (tag) => ['img', 'pre', 'table'].includes(tag.name)
+const showsNew = (tag) => showsCurrent(tag) || tag.name === 'svg' || (tag.name === 'template' && isClassed(tag, 'draw'))
+
+// exists(path) answers whether a path the report refers to, relative to the report, exists. written is given for a
+// report this skill wrote rather than imported: written.read(path) gives the text of a file relative to the report,
+// or null, and written.template the text of the skill's own copy of each file TEMPLATE names.
+export function checkReport(records, html, exists, written = null) {
   const latest = records.versions.at(-1)
   if (!latest) return ['the records have no version whose report could be checked']
   const errors = []
-  const found = attributes(html, ['id', 'src', 'href'])
+  // A drawing's markup is the app's: its links and ids are none of the report's, though its images load from the
+  // report's folder.
+  const drawings = []
+  const markup = strip(html).replace(/(<template\b[^>]*>)([\s\S]*?)(<\/template\s*>)/gi, (whole, open, inner, close) => {
+    drawings.push(inner)
+    return `${open}${close}`
+  })
+  const found = attributes(markup, ['id', 'src', 'href'])
   const ids = new Set(found.filter(([name]) => name === 'id').map(([, value]) => value))
   for (const id of latest.raised) {
     if (!ids.has(id)) errors.push(`${id} was raised in ${latest.label}, but the report has no element with id="${id}"`)
@@ -955,14 +1082,244 @@ export function checkReport(records, html, exists) {
   for (const { finding } of latest.rechecked) {
     if (!new RegExp(`\\b${finding}\\b`).test(html)) errors.push(`${finding} was re-checked in ${latest.label}, but the report never names it`)
   }
+  for (const id of latest.withdrawn) {
+    if (ids.has(id)) errors.push(`${id} was withdrawn in ${latest.label}, but the report still has an element with id="${id}"`)
+    else if (!new RegExp(`\\b${id}\\b`).test(html)) errors.push(`${id} was withdrawn in ${latest.label}, but the report never says so`)
+  }
   for (const [, target] of found.filter(([name]) => name !== 'id')) {
     if (target.startsWith('#')) {
       if (!ids.has(decodeURIComponent(target.slice(1)))) errors.push(`the link "${target}" points at no element of the report`)
       continue
     }
-    if (/^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(target)) continue
+    if (EXTERNAL.test(target)) continue
     const path = decodeURI(target.split(/[?#]/)[0])
     if (path && !exists(path)) errors.push(`the report refers to ${target}, which does not exist`)
+  }
+  for (const [, target] of attributes(drawings.join('\n'), ['src'])) {
+    const path = localPath(target)
+    if (path && !exists(path)) errors.push(`a drawing refers to ${target}, which does not exist`)
+  }
+  if (written) checkWritten(records, latest, html, markup, exists, written, errors)
+  return errors
+}
+
+// What report.md asks of a report this skill wrote from its template.
+function checkWritten(records, latest, html, markup, exists, written, errors) {
+  const tags = tagsOf(markup)
+  for (const [name, [element, attribute]] of Object.entries(TEMPLATE)) {
+    const copy = written.read(name)
+    if (copy === null) errors.push(`the report's folder has no ${name}: copy it, unchanged, from the skill's assets/report/`)
+    else if (copy !== written.template[name]) {
+      errors.push(`${name} beside the report is not the skill's assets/report/${name}: copy it again, unchanged; what one report needs beyond it goes in the report`)
+    }
+    if (!tags.some((tag) => tag.name === element && tag.attributes.get(attribute) === name)) errors.push(`the report does not load ${name}`)
+  }
+  const placeholders = html.match(PLACEHOLDER) ?? []
+  if (placeholders.length > 0) {
+    const first = placeholders[0].length > 80 ? `${placeholders[0].slice(0, 79)}…` : placeholders[0]
+    errors.push(`the report still holds ${placeholders.length} of the template's placeholders, the first ${first}`)
+  }
+  const coverage = tags.find((tag) => tag.attributes.get('id') === 'coverage')
+  if (!coverage) errors.push('the report has no appendix of what was examined, an element with id="coverage"')
+  else {
+    const linked = new Set(
+      within(tags, markup, coverage)
+        .map((tag) => tag.attributes.get('href') ?? '')
+        .filter((href) => href.startsWith('#'))
+        .map((href) => decodeURIComponent(href.slice(1))),
+    )
+    for (const id of latest.raised) {
+      if (!linked.has(id)) errors.push(`the appendix of what was examined does not link ${id}: name where it was seen, and link its card`)
+    }
+  }
+  for (const id of latest.raised) {
+    const card = tags.find((tag) => tag.attributes.get('id') === id)
+    if (!card) continue
+    if (card.name !== 'section' || !isClassed(card, 'finding')) {
+      errors.push(`${id}'s element is not its card, a <section class="finding">`)
+      continue
+    }
+    const finding = records.findings.get(id)
+    const inside = within(tags, markup, card)
+    const part = (...names) => inside.find((tag) => isClassed(tag, ...names))
+    if (!part('why')) errors.push(`${id}'s card does not say why it should be redone, in an element of class "why"`)
+    if (!part('tag', finding.severity)) errors.push(`${id}'s card does not carry its severity as a tag of class "tag ${finding.severity}"`)
+    const kind = part('tag', 'type')
+    if (!kind || textOf(markup, kind) !== KIND_TAGS[finding.kind]) {
+      errors.push(`${id}'s card does not carry its kind as a tag of class "tag type" reading "${KIND_TAGS[finding.kind]}"`)
+    }
+    if (finding.kind === 'design' && !part('design')) errors.push(`${id} is a design choice, but its card quotes no sentence of the design in an element of class "design"`)
+    const current = part('side', 'now')
+    if (!current) errors.push(`${id}'s card has no current state, an element of class "side now"`)
+    else if (!within(tags, markup, current).some(showsCurrent)) {
+      errors.push(`${id}'s current state is only words: show the real thing, a screenshot, the code, or a table of its measurements`)
+    }
+    const next = part('side', 'new')
+    if (!next) errors.push(`${id}'s card has no new version, an element of class "side new"`)
+    else if (!within(tags, markup, next).some(showsNew)) errors.push(`${id}'s new version is only words: draw it, or give it as code or a table`)
+  }
+  const drawings = tags.filter((tag) => tag.name === 'template' && isClassed(tag, 'draw'))
+  const linked = tags.filter((tag) => tag.name === 'link' && tokens(tag, 'rel').includes('drawing-stylesheet')).map((tag) => tag.attributes.get('href') ?? '')
+  if (records.audit === 'ui' && linked.length === 0 && drawings.some((tag) => !tag.attributes.get('data-css'))) {
+    errors.push('the report draws without the app\'s stylesheet: name it with <link rel="drawing-stylesheet" href="…">, or on each drawing with data-css')
+  }
+  const named = drawings.flatMap((tag) => tokens(tag, 'data-css'))
+  for (const sheet of named) {
+    const path = localPath(sheet)
+    if (path && !exists(path)) errors.push(`a drawing names the stylesheet ${sheet}, which does not exist`)
+  }
+  for (const sheet of new Set([...linked, ...named])) {
+    const path = localPath(sheet)
+    const text = path && written.read(path)
+    if (!text) continue
+    const folder = path.slice(0, path.lastIndexOf('/') + 1)
+    for (const [, , target] of text.matchAll(CSS_URL)) {
+      if (target.startsWith('/') && !target.startsWith('//')) {
+        errors.push(`${sheet} loads ${target} from the site's root, which a report opened from disk cannot reach: make it relative to ${sheet}`)
+        continue
+      }
+      const file = localPath(target)
+      if (file && !exists(`${folder}${file}`)) errors.push(`${sheet} loads ${target}, which does not exist`)
+    }
+  }
+}
+
+// The report's folder report.md lays out: what its top holds, and how capture/ and shots/ name their files.
+const FOLDER_FILES = ['review.html', 'report.css', 'report.js', 'facts.jsonl']
+const FOLDER_FOLDERS = ['assets', 'capture', 'downloads', 'proof', 'shots']
+const KEPT = 'review.html, report.css, report.js, facts.jsonl, and the folders assets/, capture/, downloads/, proof/, and shots/'
+const WORDS = '[a-z0-9]+(?:-[a-z0-9]+)*'
+const STEP = new RegExp(`^(0[1-9]|[1-9][0-9])-${WORDS}\\.[a-z0-9]+$`)
+const CAPTURE_FILE = new RegExp(`^${WORDS}(?:\\.[a-z0-9]+)+$`)
+const SHOT = new RegExp(`^${WORDS}-(?:desktop|phone)\\.(?:png|jpe?g|webp)$`)
+const SCRIPT = /\.(?:py|[cm]?js|ts|sh|rb)$/i
+const IMAGE = /\.(?:png|jpe?g|webp|gif)$/i
+
+// Where something at the top of a report's folder belongs, when the folder has no place for it there.
+function belongs(name, directory) {
+  if (directory) return `the folder keeps ${KEPT}, and nothing else; a screenshot the report keeps goes in shots/`
+  if (IMAGE.test(name)) return "a screenshot of the report is taken in the system's temporary folder and deleted after, and one of the app goes in shots/"
+  if (SCRIPT.test(name)) return "the capture's scripts go in capture/, each step numbered in the order the capture runs them, as 01-sign-in.py"
+  if (name === 'facts.json') return 'the measurements go in facts.jsonl, one to a line'
+  return "what the capture's scripts read and write goes in capture/"
+}
+
+// Each line of facts.jsonl is one measurement: a JSON object with its name and its value.
+function checkFacts(folder, text, errors) {
+  const wrong = []
+  text.split('\n').forEach((line, at) => {
+    if (line.trim() === '') return
+    const fact = parseJson(line)
+    const measured = typeof fact === 'object' && fact !== null && !Array.isArray(fact) && typeof fact.name === 'string' && fact.name.trim() !== '' && Object.hasOwn(fact, 'value')
+    if (!measured) wrong.push(at + 1)
+  })
+  if (wrong.length === 0) return
+  const more = wrong.length === 1 ? '' : `, and ${wrong.length - 1} more ${wrong.length === 2 ? 'line is' : 'lines are'} not either`
+  errors.push(`${folder}/facts.jsonl line ${wrong[0]} is not one measurement, a JSON object with its "name" and its "value"${more}`)
+}
+
+// One version's folder against the layout. entries are what it holds, each { path, directory } from the folder with
+// forward slashes, hidden files aside; read(path) gives a file's text, or null; no file in capture/ names a root.
+function checkLayout(audit, folder, entries, read, roots, errors) {
+  const steps = new Map()
+  for (const { path, directory } of entries) {
+    const parts = path.split('/')
+    const name = parts.at(-1)
+    if (directory && !entries.some((entry) => entry.path.startsWith(`${path}/`))) errors.push(`${folder}/${path}/ is empty: delete it`)
+    if (parts.length === 1) {
+      if (!(directory ? FOLDER_FOLDERS : FOLDER_FILES).includes(name)) {
+        errors.push(`${folder} holds ${name}${directory ? '/' : ''}, which a report's folder has no place for: ${belongs(name, directory)}`)
+      } else if ((name === 'shots' || name === 'proof') && audit !== 'ui') errors.push(`${folder} holds ${name}/, but a non-UI audit takes no screenshots`)
+      continue
+    }
+    const [top] = parts
+    if (parts.length > 2 || !['capture', 'shots', 'proof'].includes(top)) continue
+    if (directory) {
+      const why = {
+        capture: ": a cache is never kept, and what a step needs is installed outside the report's folder",
+        shots: ': a part of a screenshot is cut in the report with a band',
+        proof: '',
+      }[top]
+      errors.push(`${folder}/${top}/ holds a folder, ${name}/, but it holds files alone${why}`)
+      continue
+    }
+    if (top === 'shots' && !SHOT.test(name)) {
+      errors.push(`${folder}/shots/${name} is not named as a screenshot: what it shows, in lowercase words joined by hyphens, then the window it was taken in, as home-empty-desktop.png or home-empty-phone.png`)
+    }
+    if (top !== 'capture') continue
+    const step = name.match(STEP)
+    if (step) steps.set(step[1], [...(steps.get(step[1]) ?? []), name])
+    else if (/^[0-9]/.test(name) || !CAPTURE_FILE.test(name)) {
+      errors.push(`${folder}/capture/${name} is not named as capture/ asks: a step is its place in the run, two digits from 01, and what it does, as 03-issue-first-credential.py; any other file is lowercase words joined by hyphens, as lib.py`)
+    }
+    const text = read(path)
+    const root = text === null ? undefined : roots.find((each) => new RegExp(`${escapeExpression(each)}(?![\\w.-])`).test(text))
+    if (root) errors.push(`${folder}/capture/${name} names the project by its absolute path, ${root}: a script finds the report's folder from its own place, so a later version's copy writes into its own`)
+  }
+  for (const [number, names] of steps) {
+    if (names.length > 1) errors.push(`${folder}/capture/ numbers more than one step ${number}: ${names.join(', ')}; number the steps in the order the capture runs them`)
+  }
+  const missing = []
+  for (let number = 1; number <= Math.max(0, ...[...steps.keys()].map(Number)); number++) {
+    if (!steps.has(String(number).padStart(2, '0'))) missing.push(String(number).padStart(2, '0'))
+  }
+  if (missing.length > 0) errors.push(`${folder}/capture/ has no step ${missing.join(', ')}: number the steps from 01 in the order the capture runs them, without gaps`)
+  if (entries.some((entry) => entry.path === 'facts.jsonl' && !entry.directory)) checkFacts(folder, read('facts.jsonl') ?? '', errors)
+}
+
+// The files of its folder a report names: what its markup loads or links, and what its drawings load.
+function filesNamed(html) {
+  const drawings = []
+  const markup = strip(html).replace(/(<template\b[^>]*>)([\s\S]*?)(<\/template\s*>)/gi, (whole, open, inner, close) => {
+    drawings.push(inner)
+    return `${open}${close}`
+  })
+  const targets = [...attributes(markup, ['src', 'href']), ...attributes(drawings.join('\n'), ['src'])]
+  return new Set(targets.map(([, target]) => localPath(target)?.replace(/^(?:\.\/)+/, '')).filter(Boolean))
+}
+
+// An app's reports/ against the report's folder report.md lays out: one folder for each version whose report is
+// written there, named for the version. tree maps each entry of reports/, hidden files aside, to what that folder
+// holds, each { path, directory } from it with forward slashes, or to null for a file. read(name, path) gives the
+// text of a file in the folder named, or null, and exists(name, path) whether a path there exists. roots are the
+// project's absolute path, as given and as resolved, which no capture script may name.
+export function checkReports(records, { reports, tree, read, exists, roots }) {
+  const errors = []
+  const latest = records.versions.at(-1)
+  const recorded = new Set(
+    [...records.findings.values()].flatMap((finding) =>
+      finding.entries.flatMap((entry) => entry.proofs.filter((proof) => proof.kind === 'eye').map((proof) => proof.screenshot)),
+    ),
+  )
+  for (const name of [...tree.keys()].sort((left, right) => left.localeCompare(right, 'en', { numeric: true }))) {
+    const entries = tree.get(name)
+    const folder = `${reports}/${name}`
+    const version = records.versions.find((each) => each.label === name)
+    if (entries === null || version?.report !== `${folder}/review.html`) {
+      errors.push(`${reports}/ holds ${name}${entries === null ? '' : '/'}, which is no version's folder: it holds one folder for each version whose report is written there, named for the version, as v1`)
+      continue
+    }
+    checkLayout(records.audit, folder, entries, (path) => read(name, path), roots, errors)
+    for (const { path, directory } of entries) {
+      if (records.audit === 'ui' && !directory && /^proof\/[^/]+$/.test(path) && !recorded.has(`${folder}/${path}`)) {
+        errors.push(`${folder}/${path} is no eye proof's screenshot: name it in its proof, in the step's fix file, or delete it`)
+      }
+    }
+    const html = read(name, 'review.html')
+    if (html === null) {
+      if (version !== latest) errors.push(`${folder} has no review.html: an earlier version's report is never deleted`)
+      continue
+    }
+    const named = filesNamed(html)
+    if (version === latest) {
+      for (const { path, directory } of entries) {
+        if (!directory && /^shots\/[^/]+$/.test(path) && !named.has(path)) {
+          errors.push(`${folder}/${path} is shown or linked nowhere in the report: show it in a card, link it where it was examined or in the capture appendix, or delete it`)
+        }
+      }
+    } else {
+      for (const path of named) if (!exists(name, path)) errors.push(`${folder}/review.html refers to ${path}, which does not exist`)
+    }
   }
   return errors
 }

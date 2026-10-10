@@ -1,14 +1,15 @@
 #!/usr/bin/env node
 
 import { spawnSync } from 'node:child_process'
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs'
 import { dirname, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { checkRecords, checkReport, proofsToVerify, statusTable, summarize, verifyProofs } from './records.mjs'
+import { checkRecords, checkReport, checkReports, proofsToVerify, statusTable, summarize, TEMPLATE, verifyProofs } from './records.mjs'
 
 const RECORDS = 'docs/audit'
 const AUDITS = ['ui', 'non-ui']
 const REPORTS = 'reports'
+const TEMPLATE_FOLDER = fileURLToPath(new URL('../report/', import.meta.url))
 const USAGE = 'Usage: node check-records.mjs [ui|non-ui] [app] [--complete] [--report]'
 
 export function commandPlan(args) {
@@ -141,15 +142,54 @@ export function runCheck({ root, audit, app, complete = false, report = false, l
     verified = items.length
   }
   if (report && errors.length === 0) {
-    const target = result.records.versions.at(-1).report
+    const latest = result.records.versions.at(-1)
+    const target = latest.report
     const absolute = resolve(root, target)
     if (!existsSync(absolute)) errors.push(`the latest version's report, ${target}, does not exist`)
     else {
       const exists = (path) => existsSync(resolve(dirname(absolute), path))
-      errors.push(...checkReport(result.records, readFileSync(absolute, 'utf8'), exists))
+      // A report in its version's folder is one this skill wrote; an imported one stays where it was.
+      const written =
+        target === `${records}/${REPORTS}/${latest.label}/review.html`
+          ? {
+              read(path) {
+                const file = resolve(dirname(absolute), path)
+                return existsSync(file) && statSync(file).isFile() ? readFileSync(file, 'utf8') : null
+              },
+              template: Object.fromEntries(Object.keys(TEMPLATE).map((name) => [name, readFileSync(join(TEMPLATE_FOLDER, name), 'utf8')])),
+            }
+          : null
+      errors.push(...checkReport(result.records, readFileSync(absolute, 'utf8'), exists, written))
     }
+    const kept = resolve(root, reports)
+    const file = (name, path) => resolve(kept, name, path)
+    errors.push(
+      ...checkReports(result.records, {
+        reports,
+        tree: new Map(entriesOf(root, reports).map((entry) => [entry.name, entry.isDirectory() ? entriesUnder(join(kept, entry.name)) : null])),
+        read: (name, path) => (existsSync(file(name, path)) && statSync(file(name, path)).isFile() ? readFileSync(file(name, path), 'utf8') : null),
+        exists: (name, path) => existsSync(file(name, path)),
+        roots: [...new Set([resolve(root), realpathSync(root)])],
+      }),
+    )
   }
   return { errors, summary: errors.length === 0 ? [...summarize(result.records), ...statusTable(result.records)] : [], verified }
+}
+
+// What a folder holds at any depth, hidden files aside: each entry, { path, directory }, named from the folder with
+// forward slashes.
+function entriesUnder(folder) {
+  const entries = []
+  const visit = (directory) => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      if (entry.name.startsWith('.')) continue
+      const path = join(directory, entry.name)
+      entries.push({ path: relative(folder, path).split(sep).join('/'), directory: entry.isDirectory() })
+      if (entry.isDirectory()) visit(path)
+    }
+  }
+  visit(folder)
+  return entries.sort((left, right) => (left.path < right.path ? -1 : 1))
 }
 
 // What a folder under the root holds, hidden files aside, or nothing when it does not exist.

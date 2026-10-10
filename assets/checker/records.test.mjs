@@ -1,14 +1,15 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { commandPlan, runCheck, runChecks } from './check-records.mjs'
-import { checkRecords, checkReport, FORMAT, proofsToVerify, statusTable, summarize, verifyProofs } from './records.mjs'
+import { checkRecords, checkReport, checkReports, FORMAT, proofsToVerify, statusTable, summarize, TEMPLATE, verifyProofs } from './records.mjs'
 
 const CLI = join(dirname(fileURLToPath(import.meta.url)), 'check-records.mjs')
+const shipped = (name) => readFileSync(new URL(`../report/${name}`, import.meta.url), 'utf8')
 
 // Two versions: A1 is done, B1 deferred, B2 accepted with part of it fixed, and B3 rejected.
 function valid({ audited = 'ac386b3', later = '1999623' } = {}) {
@@ -285,6 +286,43 @@ const refusals = [
   ],
   ['a kind is unknown', (r) => (r['v1.json'].raised[1].kind = 'bug'), 'B1 has kind "bug"'],
   ['a severity is unknown', (r) => (r['v1.json'].raised[1].severity = 'urgent'), 'B1 has severity "urgent"'],
+  ['a withdrawal gives no reason', (r) => (r['v2.json'].withdrawn = [{ id: 'B4' }]), 'v2.json: withdrawn[0] gives no why'],
+  ['a version withdraws a finding it also raises', (r) => (r['v2.json'].withdrawn = [{ id: 'B3', why: 'it does not hold' }]), 'v2.json withdraws B3, which it also raises'],
+  [
+    "a version withdraws an earlier version's finding",
+    (r) => (r['v2.json'].withdrawn = [{ id: 'B1', why: 'the rail changed' }]),
+    'v2.json withdraws B1, which v1 raised; a later version re-checks it, as obsolete when it no longer applies',
+  ],
+  [
+    'a version withdraws an ID numbered below one an earlier version took',
+    (r) => {
+      r['v1.json'].raised.push({ ...r['v1.json'].raised[2], id: 'B5' })
+      r['v2.json'].withdrawn = [{ id: 'B4', why: 'merged into B3' }]
+    },
+    'v2.json withdraws B4, numbered below B5, which an earlier version took',
+  ],
+  ['an ID is withdrawn twice', (r) => (r['v2.json'].withdrawn = [{ id: 'B4', why: 'merged' }, { id: 'B4', why: 'merged' }]), 'v2.json withdraws B4, which it already withdrew'],
+  [
+    'a withdrawn ID is raised again',
+    (r) => {
+      r['v1.json'].withdrawn = [{ id: 'B4', why: 'merged into B2' }]
+      r['v2.json'].raised[0].id = 'B4'
+    },
+    'v2.json raises B4, which v1 withdrew; a withdrawn ID is never reused',
+  ],
+  [
+    'a new finding is numbered below a withdrawn one',
+    (r) => (r['v1.json'].withdrawn = [{ id: 'B4', why: 'merged into B2' }]),
+    'v2.json raises B3, numbered below B4, which an earlier version withdrew',
+  ],
+  [
+    'a decision rules on a withdrawn finding',
+    (r) => {
+      r['v2.json'].withdrawn = [{ id: 'B4', why: 'merged into B3' }]
+      r['v2-verdicts.json'].decisions.push({ finding: 'B4', verdict: 'rejected', reason: 'no' })
+    },
+    'decides B4, which no version up to v2 raised',
+  ],
   [
     'a later version skips a re-check',
     (r) => (r['v2.json'].rechecked = r['v2.json'].rechecked.filter((entry) => entry.finding !== 'A1')),
@@ -428,6 +466,17 @@ test('a records file that is not JSON is refused by name', () => {
   const files = filesOf(valid()).map((file) => (file.name === 'v2.json' ? { ...file, text: '{ "date": ' } : file))
   const { errors } = checkRecords(files)
   assert.ok(errors.some((error) => error.startsWith('v2.json is not valid JSON')), errors.join('\n'))
+})
+
+test('a correction withdraws a finding of its own version: the ID stays taken, and it is no finding', () => {
+  const records = variant((r) => (r['v2.json'].withdrawn = [{ id: 'B4', why: 'merged into B3: the same refusals' }]))
+  const { records: read, errors } = checkRecords(filesOf(records))
+  assert.deepEqual(errors, [])
+  assert.equal(read.findings.has('B4'), false)
+  assert.equal(
+    summarize(read)[2],
+    'v2 2026-11-02 1999623: raised 1 (1 low); withdrew 1; re-checked 3: 1 open, 1 holds, 1 waiting; 1 reopen proposal; 1 round of verdicts: 1 rejected',
+  )
 })
 
 test('complete records have no finding open, accepted, regressed, or triggered, and no proposal waiting', () => {
@@ -654,14 +703,170 @@ test('an id or a link written out in a code sample, a script, or a comment is te
   }
 })
 
+// A report this skill wrote for v2 from its template: B3, a low build defect, with its drawing.
+const WRITTEN = [
+  '<!doctype html><html><head><link rel="stylesheet" href="report.css"><link rel="drawing-stylesheet" href="assets/app.css"></head><body>',
+  '<a href="#B3">B3</a>',
+  '<section class="finding" id="B3"><header><div class="meta"><span class="fid">B3</span><span class="tag low">Low</span><span class="tag type">Build defect</span></div>',
+  "<h3>Refusals are the engine's sentences</h3></header>",
+  '<div class="why"><p>Terminal nouns beside a button.</p></div>',
+  '<div class="cmp"><div class="side now"><p class="label">Current</p><figure><img src="shots/rail-desktop.png"></figure></div>',
+  '<div class="side new"><p class="label">New version</p><figure><template class="draw" data-w="1440"><a href="/courses" id="B9">Courses</a><img src="assets/mark.svg"></template></figure></div></div>',
+  "<p class=\"note\">The teacher's words.</p></section>",
+  '<ul><li>A1 holds</li><li>B1 waiting</li><li>B2 open</li></ul>',
+  '<section class="appendix" id="coverage"><table><tr><td>Every refusal</td><td><a href="#B3">B3</a></td></tr></table></section>',
+  '<script src="report.js"></script></body></html>',
+].join('\n')
+
+const SHIPPED = { 'report.css': 'the chrome', 'report.js': 'the frames' }
+const BESIDE = {
+  ...SHIPPED,
+  'shots/rail-desktop.png': 'png',
+  'assets/app.css': '@font-face{font-family:Geist;src:url("fonts/geist.woff2") format("woff2")}',
+  'assets/fonts/geist.woff2': 'font',
+  'assets/mark.svg': 'svg',
+}
+
+// Checks a report this skill wrote, against the records change leaves, with the files beside it that files changes;
+// a file given as null is not there.
+function writtenReport(html, { change = () => {}, files = {} } = {}) {
+  const { records } = checkRecords(filesOf(variant(change)))
+  const beside = { ...BESIDE, ...files }
+  const there = (path) => typeof beside[path] === 'string'
+  return checkReport(records, html, there, { read: (path) => (there(path) ? beside[path] : null), template: SHIPPED })
+}
+
+test('a report this skill wrote passes when it holds what report.md asks, and a drawing\'s links are the app\'s', () => {
+  assert.deepEqual(writtenReport(WRITTEN), [])
+})
+
+const writtenRefusals = [
+  ['its card is not a section of class finding', WRITTEN.replace('class="finding" id="B3"', 'class="card" id="B3"'), 'B3\'s element is not its card, a <section class="finding">'],
+  ['its card does not say why', WRITTEN.replace('class="why"', 'class="reason"'), 'B3\'s card does not say why it should be redone, in an element of class "why"'],
+  ['its severity is another', WRITTEN.replace('tag low', 'tag high'), 'B3\'s card does not carry its severity as a tag of class "tag low"'],
+  ["its kind is the records' word", WRITTEN.replace('>Build defect<', '>defect<'), 'B3\'s card does not carry its kind as a tag of class "tag type" reading "Build defect"'],
+  ['it has no current state', WRITTEN.replace('side now', 'side old'), 'B3\'s card has no current state, an element of class "side now"'],
+  [
+    'its current state is only words',
+    WRITTEN.replace('<figure><img src="shots/rail-desktop.png"></figure>', '<p>The refusal reads like a terminal.</p>'),
+    "B3's current state is only words: show the real thing, a screenshot, the code, or a table of its measurements",
+  ],
+  ['it has no new version', WRITTEN.replace('side new', 'side next'), 'B3\'s card has no new version, an element of class "side new"'],
+  [
+    'its new version is only words',
+    WRITTEN.replace(/<figure><template[\s\S]*?<\/template><\/figure>/, "<p>Say it in the teacher's words.</p>"),
+    "B3's new version is only words: draw it, or give it as code or a table",
+  ],
+  [
+    'a design choice quotes nothing of the design',
+    WRITTEN.replace('>Build defect<', '>Design choice<'),
+    'B3 is a design choice, but its card quotes no sentence of the design in an element of class "design"',
+    { change: (r) => (r['v2.json'].raised[0].kind = 'design') },
+  ],
+  [
+    'a placeholder is left',
+    WRITTEN.replace('</ul>', '</ul><p>⟪What was not reached, and why.⟫</p>'),
+    "the report still holds 1 of the template's placeholders, the first ⟪What was not reached, and why.⟫",
+  ],
+  ['it has no appendix of what was examined', WRITTEN.replace('id="coverage"', 'id="examined"'), 'the report has no appendix of what was examined, an element with id="coverage"'],
+  [
+    'what was examined does not link a new finding',
+    WRITTEN.replace('<td><a href="#B3">B3</a></td>', '<td>B3</td>'),
+    'the appendix of what was examined does not link B3: name where it was seen, and link its card',
+  ],
+  [
+    "its report.css is not the skill's",
+    WRITTEN,
+    "report.css beside the report is not the skill's assets/report/report.css: copy it again, unchanged; what one report needs beyond it goes in the report",
+    { files: { 'report.css': 'the chrome, edited' } },
+  ],
+  [
+    'its report.js is missing',
+    WRITTEN,
+    ['the report refers to report.js, which does not exist', "the report's folder has no report.js: copy it, unchanged, from the skill's assets/report/"],
+    { files: { 'report.js': null } },
+  ],
+  ['it does not load report.css', WRITTEN.replace('<link rel="stylesheet" href="report.css">', ''), 'the report does not load report.css'],
+  [
+    "it draws without the app's stylesheet",
+    WRITTEN.replace('<link rel="drawing-stylesheet" href="assets/app.css">', ''),
+    'the report draws without the app\'s stylesheet: name it with <link rel="drawing-stylesheet" href="…">, or on each drawing with data-css',
+  ],
+  [
+    'a drawing names a stylesheet that does not exist',
+    WRITTEN.replace('data-w="1440"', 'data-w="1440" data-css="assets/gone.css"'),
+    'a drawing names the stylesheet assets/gone.css, which does not exist',
+  ],
+  [
+    "its drawings' stylesheet loads a font from the site's root",
+    WRITTEN,
+    "assets/app.css loads /assets/geist.woff2 from the site's root, which a report opened from disk cannot reach: make it relative to assets/app.css",
+    { files: { 'assets/app.css': '@font-face{src:url(/assets/geist.woff2)}' } },
+  ],
+  ["its drawings' stylesheet loads a font that is missing", WRITTEN, 'assets/app.css loads fonts/geist.woff2, which does not exist', { files: { 'assets/fonts/geist.woff2': null } }],
+  ["a drawing's image is missing", WRITTEN, 'a drawing refers to assets/mark.svg, which does not exist', { files: { 'assets/mark.svg': null } }],
+]
+
+for (const [name, html, expected, options] of writtenRefusals) {
+  test(`a report this skill wrote is refused when ${name}`, () => assert.deepEqual(writtenReport(html, options), [expected].flat()))
+}
+
+test("an id in a drawing is the app's, so it is not a finding's card", () => {
+  const errors = writtenReport(WRITTEN.replace('id="B3"', 'id="b3"').replace('id="B9"', 'id="B3"'))
+  assert.ok(errors.includes('B3 was raised in v2, but the report has no element with id="B3"'), errors.join('\n'))
+})
+
+test('a withdrawn finding has no card, and the report says it was withdrawn', () => {
+  const change = (r) => (r['v2.json'].withdrawn = [{ id: 'B4', why: 'merged into B3' }])
+  assert.deepEqual(writtenReport(WRITTEN.replace('</ul>', '<li>B4, withdrawn: merged into B3</li></ul>'), { change }), [])
+  assert.deepEqual(writtenReport(WRITTEN, { change }), ['B4 was withdrawn in v2, but the report never says so'])
+  assert.deepEqual(writtenReport(WRITTEN.replace('</ul>', '<li id="B4">B4, withdrawn</li></ul>'), { change }), [
+    'B4 was withdrawn in v2, but the report still has an element with id="B4"',
+  ])
+})
+
+test('the shipped skeleton passes the report check once every placeholder in it is written, and not before', () => {
+  const skeleton = shipped('review.html')
+  const finding = (id, kind, severity) => ({ id, title: 'x', kind, severity, where: 'x', problem: 'x', proposal: 'x' })
+  const records = {
+    'config.json': valid()['config.json'],
+    'v1.json': {
+      date: '2026-10-08',
+      commit: 'ac386b3',
+      scope: 'Every screen and state',
+      report: 'docs/audit/ui/course/reports/v1/review.html',
+      raised: [finding('A1', 'defect', 'high'), finding('B1', 'design', 'medium')],
+    },
+  }
+  const { records: read, errors } = checkRecords(filesOf(records))
+  assert.deepEqual(errors, [])
+  const template = Object.fromEntries(Object.keys(TEMPLATE).map((name) => [name, shipped(name)]))
+  const written = { read: (path) => template[path] ?? '', template }
+  assert.deepEqual(checkReport(read, skeleton.replace(/⟪[^⟫]*⟫/g, 'x'), () => true, written), [])
+  assert.ok(checkReport(read, skeleton, () => true, written).some((error) => error.startsWith("the report still holds")))
+})
+
 test('the report check reads the report the latest version names', () => {
   const { root } = project()
   assert.deepEqual(runCheck({ root, audit: 'ui', app: 'course', report: true }).errors, [
     "the latest version's report, docs/audit/ui/course/reports/v2/review.html, does not exist",
   ])
   write(root, '.gitignore', 'docs/audit/*/*/reports/\n')
-  write(root, 'docs/audit/ui/course/reports/v2/review.html', REPORT)
-  write(root, 'docs/audit/ui/course/reports/v2/shots/rail.png', 'png')
+  write(root, 'docs/audit/ui/course/reports/v2/review.html', WRITTEN)
+  for (const [name, text] of Object.entries({ ...BESIDE, 'report.css': shipped('report.css'), 'report.js': shipped('report.js') })) {
+    write(root, `docs/audit/ui/course/reports/v2/${name}`, text)
+  }
+  assert.deepEqual(runCheck({ root, audit: 'ui', app: 'course', report: true }).errors, [])
+  write(root, 'docs/audit/ui/course/reports/v2/report.js', 'the frames, edited')
+  assert.deepEqual(runCheck({ root, audit: 'ui', app: 'course', report: true }).errors, [
+    "report.js beside the report is not the skill's assets/report/report.js: copy it again, unchanged; what one report needs beyond it goes in the report",
+  ])
+})
+
+test('a report outside its version\'s folder is an imported one, held only to its findings, names, and links', () => {
+  const { root } = project((r) => (r['v2.json'].report = 'docs/review.html'))
+  write(root, 'docs/review.html', REPORT)
+  write(root, 'docs/shots/rail.png', 'png')
   assert.deepEqual(runCheck({ root, audit: 'ui', app: 'course', report: true }).errors, [])
 })
 
@@ -673,6 +878,206 @@ test("an app's reports/ is no part of its records, and Git must ignore it", () =
   ])
   write(root, '.gitignore', 'docs/audit/*/*/reports/\n')
   assert.deepEqual(runCheck({ root, audit: 'ui', app: 'course' }).errors, [])
+})
+
+// An app's reports/ in the layout report.md gives: v1's folder, written before v2's, with the screenshot of B2's eye
+// proof, and v2's, the latest.
+const FOLDERS = {
+  v1: {
+    'review.html': '<img src="shots/rail-desktop.png"><a href="capture/01-sign-in.py">how</a>',
+    'shots/rail-desktop.png': 'png',
+    'proof/b2-run-panel-desktop.png': 'png',
+    'capture/01-sign-in.py': 'import os',
+  },
+  v2: {
+    'review.html': '<img src="shots/rail-desktop.png"><a href="shots/rail-phone.png">phone</a><template class="draw"><img src="assets/mark.svg"></template>',
+    'report.css': 'the chrome',
+    'report.js': 'the frames',
+    'facts.jsonl': '{"name":"height:home:desktop","value":6739}\n{"at":"2026-11-02T10:00:00Z","name":"contrast:rail","value":3.1}\n',
+    'assets/app.css': 'css',
+    'assets/mark.svg': 'svg',
+    'shots/rail-desktop.png': 'png',
+    'shots/rail-phone.png': 'png',
+    'downloads/statement-2026-11.csv': 'csv',
+    'capture/01-sign-in.py': 'exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib.py")).read())',
+    'capture/02-measure-rail.py': 'measure("rail")',
+    'capture/lib.py': 'REPORT = Path(__file__).resolve().parent.parent  # beside /work/course-two',
+    'capture/measure.js': '() => document.body.scrollHeight',
+    'capture/state.json': '{}',
+  },
+}
+
+// The entries of a folder given as its files, its folders among them; a path ending in / is an empty folder.
+function listing(files) {
+  const entries = new Map()
+  for (const path of Object.keys(files)) {
+    const parts = path.replace(/\/$/, '').split('/')
+    parts.forEach((part, at) => {
+      const each = parts.slice(0, at + 1).join('/')
+      entries.set(each, { path: each, directory: at < parts.length - 1 || path.endsWith('/') })
+    })
+  }
+  return [...entries.values()].sort((left, right) => (left.path < right.path ? -1 : 1))
+}
+
+function rename(files, from, to) {
+  files[to] = files[from]
+  delete files[from]
+}
+
+// Checks the reports/ that change leaves of FOLDERS against valid()'s records, with an eye proof of B2, in the audit
+// named; a folder given as null is a file.
+function reportsFolder(change = () => {}, { audit = 'ui' } = {}) {
+  const folders = structuredClone(FOLDERS)
+  change(folders)
+  const eye = { kind: 'eye', compared: 'the run panel with its mockup', screenshot: 'docs/audit/ui/course/reports/v1/proof/b2-run-panel-desktop.png' }
+  const { records } = checkRecords(filesOf(variant((r) => r['fixes/SHELL.json'].findings[1].proofs.push(eye))), { audit })
+  const file = (name, path) => folders[name]?.[path]
+  return checkReports(records, {
+    reports: 'docs/audit/ui/course/reports',
+    tree: new Map(Object.entries(folders).map(([name, files]) => [name, files === null ? null : listing(files)])),
+    read: (name, path) => (typeof file(name, path) === 'string' && !path.endsWith('/') ? file(name, path) : null),
+    exists: (name, path) => typeof file(name, path) === 'string',
+    roots: ['/work/course'],
+  })
+}
+
+test("an app's reports/ passes when each version's folder holds what report.md lays out, named as it asks", () => {
+  assert.deepEqual(reportsFolder(), [])
+})
+
+const REPORTS = 'docs/audit/ui/course/reports'
+const CAPTURE_NAMES =
+  'is not named as capture/ asks: a step is its place in the run, two digits from 01, and what it does, as 03-issue-first-credential.py; any other file is lowercase words joined by hyphens, as lib.py'
+const folderRefusals = [
+  [
+    'a screenshot of the report is left beside it',
+    (f) => (f.v2['review-A1.png'] = 'png'),
+    `${REPORTS}/v2 holds review-A1.png, which a report's folder has no place for: a screenshot of the report is taken in the system's temporary folder and deleted after, and one of the app goes in shots/`,
+  ],
+  [
+    'a script sits beside the report',
+    (f) => (f.v2['s01_admin.py'] = 'x'),
+    `${REPORTS}/v2 holds s01_admin.py, which a report's folder has no place for: the capture's scripts go in capture/, each step numbered in the order the capture runs them, as 01-sign-in.py`,
+  ],
+  [
+    'its measurements are one JSON object',
+    (f) => (f.v2['facts.json'] = '{}'),
+    `${REPORTS}/v2 holds facts.json, which a report's folder has no place for: the measurements go in facts.jsonl, one to a line`,
+  ],
+  [
+    'what a step passes on sits beside the report',
+    (f) => (f.v2['tabs.json'] = '{}'),
+    `${REPORTS}/v2 holds tabs.json, which a report's folder has no place for: what the capture's scripts read and write goes in capture/`,
+  ],
+  [
+    'it holds a folder the layout has no place for',
+    (f) => (f.v2['setup/issuer-ready-desktop.png'] = 'png'),
+    `${REPORTS}/v2 holds setup/, which a report's folder has no place for: the folder keeps review.html, report.css, report.js, facts.jsonl, and the folders assets/, capture/, downloads/, proof/, and shots/, and nothing else; a screenshot the report keeps goes in shots/`,
+  ],
+  [
+    'a folder is empty',
+    (f) => {
+      delete f.v2['downloads/statement-2026-11.csv']
+      f.v2['downloads/'] = ''
+    },
+    `${REPORTS}/v2/downloads/ is empty: delete it`,
+  ],
+  [
+    'capture/ holds a cache',
+    (f) => (f.v2['capture/__pycache__/lib.cpython-312.pyc'] = 'bytes'),
+    `${REPORTS}/v2/capture/ holds a folder, __pycache__/, but it holds files alone: a cache is never kept, and what a step needs is installed outside the report's folder`,
+  ],
+  ['a step is named another way', (f) => rename(f.v2, 'capture/02-measure-rail.py', 'capture/s02_measure_rail.py'), `${REPORTS}/v2/capture/s02_measure_rail.py ${CAPTURE_NAMES}`],
+  ['a step carries a letter', (f) => rename(f.v2, 'capture/02-measure-rail.py', 'capture/01b-measure-rail.py'), `${REPORTS}/v2/capture/01b-measure-rail.py ${CAPTURE_NAMES}`],
+  ['a step counts from 00', (f) => rename(f.v2, 'capture/01-sign-in.py', 'capture/00-sign-in.py'), [`${REPORTS}/v2/capture/00-sign-in.py ${CAPTURE_NAMES}`, `${REPORTS}/v2/capture/ has no step 01: number the steps from 01 in the order the capture runs them, without gaps`]],
+  [
+    'the steps leave a gap',
+    (f) => rename(f.v2, 'capture/02-measure-rail.py', 'capture/03-measure-rail.py'),
+    `${REPORTS}/v2/capture/ has no step 02: number the steps from 01 in the order the capture runs them, without gaps`,
+  ],
+  [
+    'two steps share a number',
+    (f) => (f.v2['capture/02-measure-menu.py'] = 'x'),
+    `${REPORTS}/v2/capture/ numbers more than one step 02: 02-measure-menu.py, 02-measure-rail.py; number the steps in the order the capture runs them`,
+  ],
+  ['a helper is named another way', (f) => (f.v2['capture/check_report.py'] = 'x'), `${REPORTS}/v2/capture/check_report.py ${CAPTURE_NAMES}`],
+  [
+    'a script names the project by its absolute path',
+    (f) => (f.v2['capture/lib.py'] = 'ROOT = Path("/work/course")'),
+    `${REPORTS}/v2/capture/lib.py names the project by its absolute path, /work/course: a script finds the report's folder from its own place, so a later version's copy writes into its own`,
+  ],
+  [
+    'a screenshot is named another way',
+    (f) => {
+      rename(f.v2, 'shots/rail-phone.png', 'shots/A01-rail.png')
+      f.v2['review.html'] = f.v2['review.html'].replace('shots/rail-phone.png', 'shots/A01-rail.png')
+    },
+    `${REPORTS}/v2/shots/A01-rail.png is not named as a screenshot: what it shows, in lowercase words joined by hyphens, then the window it was taken in, as home-empty-desktop.png or home-empty-phone.png`,
+  ],
+  [
+    'shots/ holds a folder of crops',
+    (f) => (f.v2['shots/crops/a4a.png'] = 'png'),
+    `${REPORTS}/v2/shots/ holds a folder, crops/, but it holds files alone: a part of a screenshot is cut in the report with a band`,
+  ],
+  [
+    'proof/ holds a screenshot no eye proof names',
+    (f) => (f.v2['proof/b2-run-panel-phone.png'] = 'png'),
+    `${REPORTS}/v2/proof/b2-run-panel-phone.png is no eye proof's screenshot: name it in its proof, in the step's fix file, or delete it`,
+  ],
+  ['proof/ holds a folder', (f) => (f.v1['proof/old/b2.png'] = 'png'), `${REPORTS}/v1/proof/ holds a folder, old/, but it holds files alone`],
+  [
+    'a screenshot is shown nowhere in the latest report',
+    (f) => (f.v2['shots/menu-open-desktop.png'] = 'png'),
+    `${REPORTS}/v2/shots/menu-open-desktop.png is shown or linked nowhere in the report: show it in a card, link it where it was examined or in the capture appendix, or delete it`,
+  ],
+  [
+    'a line of facts.jsonl is no measurement',
+    (f) => (f.v2['facts.jsonl'] = '{"name":"height:home:desktop","value":6739}\n{"height":6739}\nheight 6739\n'),
+    `${REPORTS}/v2/facts.jsonl line 2 is not one measurement, a JSON object with its "name" and its "value", and 1 more line is not either`,
+  ],
+  ['an earlier report lost a file it shows', (f) => delete f.v1['shots/rail-desktop.png'], `${REPORTS}/v1/review.html refers to shots/rail-desktop.png, which does not exist`],
+  ['an earlier report is gone', (f) => delete f.v1['review.html'], `${REPORTS}/v1 has no review.html: an earlier version's report is never deleted`],
+  [
+    'reports/ holds a file',
+    (f) => (f['notes.txt'] = null),
+    `${REPORTS}/ holds notes.txt, which is no version's folder: it holds one folder for each version whose report is written there, named for the version, as v1`,
+  ],
+  [
+    'reports/ holds a folder of no version',
+    (f) => (f.v3 = { 'review.html': '' }),
+    `${REPORTS}/ holds v3/, which is no version's folder: it holds one folder for each version whose report is written there, named for the version, as v1`,
+  ],
+]
+
+for (const [name, change, expected] of folderRefusals) {
+  test(`an app's reports/ is refused when ${name}`, () => assert.deepEqual(reportsFolder(change), [expected].flat()))
+}
+
+test('a non-UI audit keeps no screenshots in its reports', () => {
+  assert.deepEqual(reportsFolder(() => {}, { audit: 'non-ui' }), [
+    `${REPORTS}/v1 holds proof/, but a non-UI audit takes no screenshots`,
+    `${REPORTS}/v1 holds shots/, but a non-UI audit takes no screenshots`,
+    `${REPORTS}/v2 holds shots/, but a non-UI audit takes no screenshots`,
+  ])
+})
+
+test("the report check holds every version's folder in reports/ to the layout, and passes over hidden files", () => {
+  const { root } = project()
+  write(root, '.gitignore', 'docs/audit/*/*/reports/\n')
+  for (const [name, text] of Object.entries({ ...BESIDE, 'review.html': WRITTEN, 'report.css': shipped('report.css'), 'report.js': shipped('report.js') })) {
+    write(root, `docs/audit/ui/course/reports/v2/${name}`, text)
+  }
+  write(root, 'docs/audit/ui/course/reports/v1/review.html', '<img src="shots/rail-desktop.png">')
+  write(root, 'docs/audit/ui/course/reports/v1/shots/rail-desktop.png', 'png')
+  write(root, 'docs/audit/ui/course/reports/v1/.DS_Store', 'the system')
+  assert.deepEqual(runCheck({ root, audit: 'ui', app: 'course', report: true }).errors, [])
+  write(root, 'docs/audit/ui/course/reports/v1/review-A1.png', 'png')
+  write(root, 'docs/audit/ui/course/reports/v1/capture/lib.py', `ROOT = "${root}"\n`)
+  assert.deepEqual(runCheck({ root, audit: 'ui', app: 'course', report: true }).errors, [
+    `docs/audit/ui/course/reports/v1/capture/lib.py names the project by its absolute path, ${root}: a script finds the report's folder from its own place, so a later version's copy writes into its own`,
+    "docs/audit/ui/course/reports/v1 holds review-A1.png, which a report's folder has no place for: a screenshot of the report is taken in the system's temporary folder and deleted after, and one of the app goes in shots/",
+  ])
 })
 
 test('without an audit, every app of both audits is checked under its own name, and with one, its apps alone', () => {
