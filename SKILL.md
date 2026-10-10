@@ -1,6 +1,6 @@
 ---
 name: app-slop-audit
-description: Audit a built web app for what was rushed or generated without judgment, keep every finding, verdict, and fix in committed records so repeated audits build on each other instead of changing their mind, and apply accepted fixes in tracked steps that each close with proof. Use when asked to find AI slop or rushed work in an app, to audit or re-audit an app's screens and code, to record verdicts on audit findings, to apply or verify audit fixes, or to import an earlier audit report into the records.
+description: Audit a built web app's UI for what was rushed or generated without judgment, or, when asked, what no screen shows, such as its backend, data, and code; keep every finding, verdict, and fix in committed records so repeated audits build on each other instead of changing their mind; and apply accepted fixes in tracked steps that each close with proof. Use when asked to find UI slop or rushed work in an app's screens, to run a non-UI audit of an app's backend, data, or code, to record verdicts on audit findings, to apply or verify audit fixes, or to import an earlier audit report into the records.
 ---
 
 # App Slop Audit
@@ -10,7 +10,24 @@ never looked at at the size real use reaches; why each should be redone; and the
 often as wanted. The records make the runs one history: each run starts from what earlier runs found and
 what the maintainer decided, checks that again, and only then looks for something new.
 
-Read [records.md](references/records.md) before any mode. Read [looking.md](references/looking.md) and
+## Two audits
+
+The skill is for the UI. It runs one of two audits, and the request says which:
+
+- **The UI audit**, the default: what a user sees and does, every screen and every state of it, and the
+  frontend code that draws them. Its reference is [ui.md](references/ui.md).
+- **The non-UI audit**, only when the request asks for it: what no screen shows, such as the backend, the
+  rules, the data, the structure of the code, and the tests. Its reference is
+  [non-ui.md](references/non-ui.md).
+
+A problem a user can see on a screen belongs to the UI audit, wherever its cause lies; one no screen shows
+belongs to the non-UI audit. Each audit has its own records, `docs/audit/ui/<app>/` and
+`docs/audit/non-ui/<app>/`, with its own standards, areas, findings, verdicts, and fixes. Every run, in any
+mode, works on one audit: it reads, re-checks, decides, and fixes only that audit's findings, and leaves
+what belongs to the other to a run of it. A request that names neither is for the UI audit, unless it
+continues work on the non-UI audit's records, such as verdicts on its latest version.
+
+Read [records.md](references/records.md) before any mode. Read the audit's reference and
 [report.md](references/report.md) before `audit`, [report.md](references/report.md) before `import`, and
 [fixing.md](references/fixing.md) before `apply`.
 
@@ -18,13 +35,14 @@ The checker in `assets/checker/` is the only implementation of the records' rule
 folder against the project; never copy it into a project:
 
 ```
-node <this skill>/assets/checker/check-records.mjs [app] [--complete] [--report]
+node <this skill>/assets/checker/check-records.mjs [ui|non-ui] [app] [--complete] [--report]
 ```
 
-With an app, it checks that app's records, `docs/audit/<app>/` under the current directory, which is the
-project's root in a Git repository; with none, every app's. Every run verifies each proof of a done or
-accepted finding against the files: it counts each search again, today and at the audited commit, and
-confirms each test is still declared under its title. `--report` also checks the latest version's report;
+With an audit and an app, it checks those records, `docs/audit/<audit>/<app>/` under the current directory,
+which is the project's root in a Git repository; with an audit alone, every app's records in it; with
+neither, every app's in both. Every run verifies each proof of a done or accepted finding against the
+files: it counts each search again, today and at the audited commit, and confirms each test is still
+declared under its title. `--report` also checks the latest version's report;
 `--complete` also refuses any finding still open, accepted, regressed, or triggered, and any proposal still
 waiting for its answer. On a pass it prints what each version raised and re-checked, then where each
 finding stands. Its own tests: `node --test <this skill>/assets/checker/records.test.mjs`.
@@ -44,34 +62,34 @@ Never combine `audit` with `decide` or `apply` in one pass. An audit ends at the
 
 ## One app or several
 
-Each audited app has its own folder, `docs/audit/<app>/`, named for the app. It holds the app's records
-and, in `reports/`, which git ignores, each version's report. A single run and a fan-out write the same
-files.
+Each audited app has its own folder in each audit's records, `docs/audit/<audit>/<app>/`, named for the
+app. It holds the app's records and, in `reports/`, which git ignores, each version's report. A single run
+and a fan-out write the same files.
 
 - A **single run** audits one app. This session does every step.
-- A **fan-out** audits several apps at once, one agent per app, started by this session, the coordinator.
-  Only `audit` fans out. `decide` stays in one session because the maintainer answers one question at a
-  time, and `apply` because it changes code the apps may share. Either may write in several apps' folders
-  when one decision or one fix covers them.
+- A **fan-out** audits several apps at once, in one audit, one agent per app, started by this session, the
+  coordinator. Only `audit` fans out. `decide` stays in one session because the maintainer answers one
+  question at a time, and `apply` because it changes code the apps may share. Either may write in several
+  apps' folders when one decision or one fix covers them.
 
 Before starting any agent, the coordinator:
 
 1. Confirms that no one outside the run is working in the project, and records the fan-out where the
-   project tracks work: the apps, the commit, and each app's folder.
-2. Adds `docs/audit/*/reports/` to `.gitignore` when it is missing.
-3. Has the maintainer confirm the severity definitions of each app without records, when the project
-   gives none, one question at a time, so no agent has to ask.
+   project tracks work: the audit, the apps, the commit, and each app's folder.
+2. Adds `docs/audit/*/*/reports/` to `.gitignore` when it is missing.
+3. Has the maintainer confirm the severity definitions of each app without records in this audit, when the
+   project gives none, one question at a time, so no agent has to ask.
 4. Builds each app at that commit, one after another, and serves each, with everything it calls, on ports
-   of its own that the project does not use for development, with its own copy of the data, as
-   [report.md](references/report.md) describes. It writes down each server's process ID.
-5. Starts one agent per app, telling it its app, folder, code, address, and commit; its confirmed severity
-   definitions; the code it shares with other apps; and its siblings and their folders.
+   of its own that the project does not use for development, with its own copy of the data, as the audit's
+   reference describes. It writes down each server's process ID.
+5. Starts one agent per app, telling it the audit, its app, folder, code, address, and commit; its confirmed
+   severity definitions; the code it shares with other apps; and its siblings and their folders.
 
 Each agent runs `audit` for its app, with four differences:
 
 - It writes only in its app's folder. It builds nothing, starts or stops no server, changes neither the
   plan nor `.gitignore`, and commits nothing.
-- It captures from the address it was given, with a browser of its own.
+- It captures from the address it was given, in the UI audit with a browser of its own.
 - Changes in a sibling's folder are the sibling's; changes to the plan and `.gitignore` are the
   coordinator's. Any other change it did not make means someone outside the run is working in the
   project: it stops and tells the coordinator, which stops every agent and server and says so.
@@ -123,33 +141,36 @@ it raised before. These rules exist to stop that; they are the point of the skil
 ## Mode: audit
 
 1. Read the project's instructions, the records, the design authority, and the plan, and run the checker
-   for the app. With no records this run is v1: write `config.json` as [records.md](references/records.md)
-   describes, its standards and areas first, and have the maintainer confirm the severity definitions when
-   the project gives none; in a fan-out, use the ones the coordinator had confirmed.
+   for the audit and the app. With no records this run is v1: write `config.json` as
+   [records.md](references/records.md) describes, its standards and areas first, and have the maintainer
+   confirm the severity definitions when the project gives none; in a fan-out, use the ones the coordinator
+   had confirmed.
 2. Record the commit (`git rev-parse --short HEAD`), the date, and the state of the working tree. Name the
-   new version and its scope: every screen, state, and module, or the part the maintainer named.
-3. Capture the app as [report.md](references/report.md) describes, at the size real use reaches, into
-   `docs/audit/<app>/reports/vN/`. Add `docs/audit/*/reports/` to `.gitignore` when it is missing.
+   new version and its scope: everything the audit covers, or the part the maintainer named.
+3. Capture the app as the audit's reference describes, at the size real use reaches, into
+   `docs/audit/<audit>/<app>/reports/vN/`. Add `docs/audit/*/*/reports/` to `.gitignore` when it is
+   missing.
 4. Re-check every earlier finding that is not rejected or obsolete, before looking for anything new: the
    checker has run the proofs of every done finding, and look again at each finding's `where`. Write one
    re-check per finding, with the outcomes [records.md](references/records.md) lists and what was observed.
    A done finding that broke again is `regressed`. A deferred finding whose trigger has fired is
    `triggered`, and goes to the maintainer for a decision.
-5. Look for new findings with [looking.md](references/looking.md), screen by screen, state by state, and
-   module by module. For each candidate: search the records; check it against the principles, rejections,
-   out-of-scope list, and cleared items; measure it; give it a kind and a severity by the config's
-   standards; and design its new version from what the screen is for, measured against real data, not from
-   its current shape.
+5. Look for new findings with the audit's reference, through everything it covers. For each candidate:
+   search the records; check it against the principles, rejections, out-of-scope list, and cleared items;
+   measure it; give it a kind and a severity by the config's standards; and design its new version from
+   what the screen or module is for, measured against real data, not from its current shape. A candidate
+   that belongs to the other audit is not raised; step 9 names it.
 6. Review the draft as its harshest reader. Drop each candidate whose evidence does not hold, whose cost to
    the user cannot be stated, or which restates a choice the design made on purpose. Record each dropped
    candidate among the version's cleared items with why it is sound, so the next run does not raise it.
-7. Write `docs/audit/<app>/reports/vN/review.html` as [report.md](references/report.md) describes.
-8. Write the version's file, `docs/audit/<app>/vN.json`: its date, commit, scope, and report; each
-   re-check; each reopen proposal; each new finding; and the cleared items. Run the checker for the app
-   with `--report` and fix everything it names.
-9. Stop. Give the report's path, what came back, what is still open, and the new findings by severity. Then
-   the decisions needed: each new design finding and each reopen proposal framed as what it changes, why,
-   the case against, and a recommendation, ending on one question.
+7. Write `docs/audit/<audit>/<app>/reports/vN/review.html` as [report.md](references/report.md) describes.
+8. Write the version's file, `docs/audit/<audit>/<app>/vN.json`: its date, commit, scope, and report; each
+   re-check; each reopen proposal; each new finding; and the cleared items. Run the checker for the audit
+   and the app with `--report` and fix everything it names.
+9. Stop. Give the report's path, what came back, what is still open, the new findings by severity, and
+   what was seen that belongs to the other audit. Then the decisions needed: each new design finding and
+   each reopen proposal framed as what it changes, why, the case against, and a recommendation, ending on
+   one question.
 
 ## Mode: decide
 
@@ -179,21 +200,24 @@ Follow [fixing.md](references/fixing.md).
    task list otherwise. Never in the records, which hold no order of work.
 3. Rethink each new version rather than copying the proposal: measure what its callers and real data need.
    Record every departure from the proposal in the finding's entry in the step's fix file.
-4. Close each finding in the step's fix file, `docs/audit/<app>/fixes/<STEP>.json`, with its proofs: a
-   test that fails without the fix, a search or a file's text for a fact about the files themselves, or, for
-   a pure matter of taste, a look by eye recorded with its screenshot. A finding whose proofs cannot fail on
-   each defect its title names stays `accepted`, its entry saying what is left.
+4. Close each finding in the step's fix file, `docs/audit/<audit>/<app>/fixes/<STEP>.json`, with its
+   proofs: a test that fails without the fix, a search or a file's text for a fact about the files
+   themselves, or, for a pure matter of taste in the UI audit, a look by eye recorded with its screenshot. A
+   finding whose proofs cannot fail on each defect its title names stays `accepted`, its entry saying what
+   is left.
 5. Run the checker after every step, and with `--complete` when the round is done. Every run of the checker
    verifies every proof again.
 
 ## Mode: import
 
-For an audit report made before this skill.
+For an audit report made before this skill. Its findings go to the audit each belongs to, by the rule under
+Two audits: a report holding findings of both becomes v1 of each audit, each with its own findings and both
+naming the same report.
 
-1. Read the old report whole. Each finding becomes one of v1's raised findings under its original ID, with
-   its kind, severity, where, problem, and proposal, and its area in the config.
-2. Fill `v1.json`'s date, commit, and report from the report: the date it was captured and the commit it
-   was captured from, or, when the report names none, the last commit before its capture, saying so in its
+1. Read the old report whole. Each finding becomes one of its audit's v1 raised findings under its original
+   ID, with its kind, severity, where, problem, and proposal, and its area in that audit's config.
+2. Fill each `v1.json`'s date, commit, and report from the report: the date it was captured and the commit
+   it was captured from, or, when the report names none, the last commit before its capture, saying so in its
    scope. Leave the report where it is and name its path; do not move or rewrite it.
 3. Take each verdict from where the project recorded it: the plan, a decision record, the maintainer's
    words, and write them as `v1-verdicts.json`, naming that source. A finding no decision covers stays
@@ -203,8 +227,9 @@ For an audit report made before this skill.
    names. Never write a proof from a summary. A fixed finding without one stays `accepted`, with the gap
    said in its entry's `left`.
 5. Write the principles the adopted design choices settled in `v1-verdicts.json`, the exclusions the design
-   states in the config, and the report's own list of what it checked and cleared in `v1.json`.
-6. Run the checker with `--report`.
+   states in the config, and the report's own list of what it checked and cleared in `v1.json`, each in the
+   audit it belongs to.
+6. Run the checker for each audit it imported into, with `--report`.
 
 ## Stop conditions
 
