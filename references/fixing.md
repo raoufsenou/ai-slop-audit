@@ -4,12 +4,14 @@
 
 - A step is one row of the project's plan, or one item of the session's task list when the project has
   none. It names the finding IDs it closes, records them in its fix file,
-  `docs/audit/<audit>/<app>/fixes/<STEP>.json`, one in the folder of each app whose findings it closes, and
-  is complete when their proofs pass and the project's own gates pass.
+  `docs/audit/<audit>/<app>/fixes/<STEP>.json`, one in the folder of each app whose findings it closes and
+  one in `docs/audit/<audit>/shared/` for the shared findings it closes, and is complete when their proofs
+  pass and the project's own gates pass.
 - Order: the design authority first, so every later step builds what the document says; then shared
-  foundations, such as tokens, the frame, and the module that words the backend's refusals; then the
-  screens and modules that use them; then the tests that would have caught the findings, where the steps
-  did not already add them.
+  foundations, such as tokens, the frame, and the module that words the backend's refusals, with the
+  accepted shared findings; then the screens and modules that use them, where an app's finding cut down to
+  its own part follows the shared finding that took the rest; then the tests that would have caught the
+  findings, where the steps did not already add them.
 - Size: small enough that one focused check can fail on it. A step that touches every screen is two steps.
 - Slice by screen or file, not by pattern. A screen is done when all its findings are, so a step that fixes
   one pattern across twenty screens leaves twenty screens half done.
