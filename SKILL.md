@@ -1,6 +1,6 @@
 ---
 name: app-slop-audit
-description: Audit a built web app's UI for what was rushed or generated without judgment, or, when asked, what no screen shows, such as its backend, data, and code; keep every finding, verdict, and fix in committed records so repeated audits build on each other instead of changing their mind; and apply accepted fixes in tracked steps that each close with proof. Use when asked to find UI slop or rushed work in an app's screens, to run a non-UI audit of an app's backend, data, or code, to record verdicts on audit findings, to apply or verify audit fixes, or to import an earlier audit report into the records.
+description: Audit a built web app's UI for what was rushed or generated without judgment, or, when asked, what no screen shows, such as its backend, data, and code; keep every finding, verdict, and fix in committed records so repeated audits build on each other instead of changing their mind; and apply accepted fixes in tracked steps that each close with proof. Use when asked to find UI slop or rushed work in an app's screens, to run a non-UI audit of an app's backend, data, or code, to record verdicts on audit findings, to apply or verify audit fixes, to correct or rewrite the latest audit report without a new version, or to import an earlier audit report into the records.
 ---
 
 # App Slop Audit
@@ -28,8 +28,8 @@ what belongs to the other to a run of it. A request that names neither is for th
 continues work on the non-UI audit's records, such as verdicts on its latest version.
 
 Read [records.md](references/records.md) before any mode. Read the audit's reference and
-[report.md](references/report.md) before `audit`, [report.md](references/report.md) before `import`, and
-[fixing.md](references/fixing.md) before `apply`.
+[report.md](references/report.md) before `audit` and `report`, [report.md](references/report.md) before
+`import`, and [fixing.md](references/fixing.md) before `apply`.
 
 The checker in `assets/checker/` is the only implementation of the records' rules. Run it from this skill's
 folder against the project; never copy it into a project:
@@ -42,7 +42,7 @@ With an audit and an app, it checks those records, `docs/audit/<audit>/<app>/` u
 which is the project's root in a Git repository; with an audit alone, every app's records in it; with
 neither, every app's in both. Every run verifies each proof of a done or accepted finding against the
 files: it counts each search again, today and at the audited commit, and confirms each test is still
-declared under its title. `--report` also checks the latest version's report;
+declared under its title. `--report` also checks the latest version's report, as report.md describes;
 `--complete` also refuses any finding still open, accepted, regressed, or triggered, and any proposal still
 waiting for its answer. On a pass it prints what each version raised and re-checked, then where each
 finding stands. Its own tests: `node --test <this skill>/assets/checker/records.test.mjs`.
@@ -54,11 +54,14 @@ otherwise `audit`.
 
 - `audit` — run the next version: re-check every earlier finding, look for new ones, write the report,
   record both in the version's file, and stop for the maintainer's verdicts.
+- `report` — rewrite the latest version's report from its capture and records, before any verdict on it,
+  correcting the version's file where the capture shows it wrong; no new version and no server.
 - `decide` — record the maintainer's verdicts and the principles they settle.
 - `apply` — fix accepted findings in steps, each closing named findings with proof.
 - `import` — turn an audit made before this skill into the records' v1.
 
-Never combine `audit` with `decide` or `apply` in one pass. An audit ends at the maintainer's decision.
+Never combine `audit` or `report` with `decide` or `apply` in one pass. An audit ends at the maintainer's
+decision.
 
 ## One app or several
 
@@ -68,9 +71,9 @@ and a fan-out write the same files.
 
 - A **single run** audits one app. This session does every step.
 - A **fan-out** audits several apps at once, in one audit, one agent per app, started by this session, the
-  coordinator. Only `audit` fans out. `decide` stays in one session because the maintainer answers one
-  question at a time, and `apply` because it changes code the apps may share. Either may write in several
-  apps' folders when one decision or one fix covers them.
+  coordinator. Only `audit` and `report` fan out. `decide` stays in one session because the maintainer
+  answers one question at a time, and `apply` because it changes code the apps may share. Either may write
+  in several apps' folders when one decision or one fix covers them.
 
 Before starting any agent, the coordinator:
 
@@ -85,18 +88,24 @@ Before starting any agent, the coordinator:
 5. Starts one agent per app, telling it the audit, its app, folder, code, address, and commit; its confirmed
    severity definitions; the code it shares with other apps; and its siblings and their folders.
 
-Each agent runs `audit` for its app, with four differences:
+A fan-out of `report` serves nothing and gives no address. Of steps 2 to 4 the coordinator does only the
+build, in the UI audit, for an app whose production build the capture used is gone, as step 5 of `report`
+allows, and tells each agent where its app's build is.
+
+Each agent runs the mode for its app, with four differences:
 
 - It writes only in its app's folder. It builds nothing, starts or stops no server, changes neither the
   plan nor `.gitignore`, and commits nothing.
-- It captures from the address it was given, in the UI audit with a browser of its own.
+- It captures from the address it was given, in the UI audit with a browser of its own; in `report` it
+  captures nothing, and its browser only opens the page.
 - Changes in a sibling's folder are the sibling's; changes to the plan and `.gitignore` are the
   coordinator's. Any other change it did not make means someone outside the run is working in the
   project: it stops and tells the coordinator, which stops every agent and server and says so.
-- It never asks the maintainer anything. At step 9 of `audit`, or wherever a single run would stop to ask,
-  it returns that to the coordinator, which asks and, once answered, finishes that app's audit itself.
+- It never asks the maintainer anything. At step 9 of `audit` or step 8 of `report`, or wherever a single
+  run would stop to ask, it returns that to the coordinator, which asks and, once answered, finishes that
+  app's run itself.
 
-When every app's audit is done, the coordinator stops the servers it started, by their process IDs,
+When every app's run is done, the coordinator stops any servers it started, by their process IDs,
 closes the fan-out's entry where it recorded it, and runs the checker with `--report`. It gives the
 maintainer each app's report and summary, then the decisions one question at a time, naming each finding
 with its app, since every app counts its own IDs, and asking once about findings that several apps raised
@@ -112,7 +121,8 @@ it raised before. These rules exist to stop that; they are the point of the skil
    severity means), areas, and out-of-scope list, every principle, every cleared item, and every finding
    bind the run.
 2. **A finding keeps its ID for good.** Before raising anything, search the records for the same place and
-   the same problem. A match is the old ID, re-checked, never a new one. IDs are never reused or renumbered.
+   the same problem. A match is the old ID, re-checked, never a new one. IDs are never reused or renumbered,
+   a withdrawn finding's included.
 3. **Decisions are reversed in the open, never silently.** A run that disagrees with a principle, a
    rejection, an exclusion, or a cleared item writes a reopen proposal giving evidence that did not exist
    when it was decided: the code changed, a new measurement, a user's report. Taste is not new evidence.
@@ -131,12 +141,17 @@ it raised before. These rules exist to stop that; they are the point of the skil
   once per project, and a fan-out's entry where the project tracks work. It captures from a production
   build of the commit it records, serves copies of real data, and points every paid or external call at an
   address that refuses it. It never runs a paid operation.
+- `report` changes no tracked file except the latest version's file in the records, and a fan-out's entry
+  where the project tracks work. It starts no server, and builds only as its step 5 allows.
 - If anyone outside the run is working in the project, another session or a person, write nothing there.
   Say so and stop. A fan-out's coordinator and agents are one run.
 - Commit nothing unless asked. The records are committed with the work that changes them; reports and
   screenshots stay in the app's `reports/`, which git ignores.
-- Never delete an earlier version's report, and never edit or delete an earlier records file. A finding
-  that no longer applies is re-checked as `obsolete`, with its reason.
+- Never delete an earlier version's report, and never edit or delete an earlier records file, except to
+  correct the latest version's file before its first round of verdicts, as
+  [records.md](references/records.md) describes. A finding that no longer applies is re-checked as
+  `obsolete`, with its reason. Tidying an earlier version's report folder changes only what
+  [report.md](references/report.md) lists.
 
 ## Mode: audit
 
@@ -147,7 +162,8 @@ it raised before. These rules exist to stop that; they are the point of the skil
    had confirmed.
 2. Record the commit (`git rev-parse --short HEAD`), the date, and the state of the working tree. Name the
    new version and its scope: everything the audit covers, or the part the maintainer named.
-3. Capture the app as the audit's reference describes, at the size real use reaches, into
+3. Tidy each earlier version's report folder, as [report.md](references/report.md) describes. Capture the
+   app as the audit's reference describes, at the size real use reaches, into
    `docs/audit/<audit>/<app>/reports/vN/`. Add `docs/audit/*/*/reports/` to `.gitignore` when it is
    missing.
 4. Re-check every earlier finding that is not rejected or obsolete, before looking for anything new: the
@@ -159,11 +175,15 @@ it raised before. These rules exist to stop that; they are the point of the skil
    search the records; check it against the principles, rejections, out-of-scope list, and cleared items;
    measure it; give it a kind and a severity by the config's standards; and design its new version from
    what the screen or module is for, measured against real data, not from its current shape. A candidate
-   that belongs to the other audit is not raised; step 9 names it.
-6. Review the draft as its harshest reader. Drop each candidate whose evidence does not hold, whose cost to
-   the user cannot be stated, or which restates a choice the design made on purpose. Record each dropped
-   candidate among the version's cleared items with why it is sound, so the next run does not raise it.
-7. Write `docs/audit/<audit>/<app>/reports/vN/review.html` as [report.md](references/report.md) describes.
+   that belongs to the other audit is not raised; step 9 and the report name it.
+6. Review the draft as its harshest reader. Drop each candidate whose evidence does not hold or whose cost
+   to the user cannot be stated. One that questions a choice the design made is a design finding when it
+   shows a cost the design did not weigh, and is dropped only when the design weighed that cost and gives
+   its reason: a design sentence that only describes what was built, written with it, weighed nothing.
+   Record each dropped candidate among the version's cleared items with why it is sound, so the next run
+   does not raise it.
+7. Write `docs/audit/<audit>/<app>/reports/vN/review.html` from the template in this skill's
+   `assets/report/`, as [report.md](references/report.md) describes.
 8. Write the version's file, `docs/audit/<audit>/<app>/vN.json`: its date, commit, scope, and report; each
    re-check; each reopen proposal; each new finding; and the cleared items. Run the checker for the audit
    and the app with `--report` and fix everything it names.
@@ -171,6 +191,38 @@ it raised before. These rules exist to stop that; they are the point of the skil
    what was seen that belongs to the other audit. Then the decisions needed: each new design finding and
    each reopen proposal framed as what it changes, why, the case against, and a recommendation, ending on
    one question.
+
+## Mode: report
+
+For a version whose report falls short of [report.md](references/report.md), such as one written before its
+template or one the maintainer found wanting. It rewrites the report from what the version's capture left
+and from the records, and corrects the version's file where the capture shows it wrong, without a new
+version or a server, so it runs straight after an audit and before anyone decides.
+
+1. Read the project's instructions, the records, the design authority, and the plan, and run the checker
+   for the audit and the app. Work on the latest version only. When a round of verdicts on it exists,
+   stop: the maintainer decided on that report, and the next `audit` corrects it in the open.
+2. Read the report as it stands, the version's file, and everything the capture left in the report's
+   folder: its screenshots, its measurements, and its scripts. Then tidy the folder, as
+   [report.md](references/report.md) describes.
+3. List everything the version covered, from the app's routes, or its modules and endpoints, against the
+   capture: each one captured, or not reached and why. This mode captures nothing, so what the capture
+   never reached stays unreached, and the report names it for the next `audit`.
+4. Review every finding as step 6 of `audit` does, against the capture: its evidence holds, its cost is
+   stated, it is one problem, and its kind and severity follow the config's standards. Look through the
+   capture with the audit's reference for what the version missed. Correct the version's file as
+   [records.md](references/records.md) describes: withdraw what does not hold, split what holds two
+   problems, raise what was missed, and change a record's words only where the capture proves them wrong.
+5. In the UI audit, copy the app's built stylesheet, and the fonts and images it loads, into the report's
+   `assets/`, from the capture or from the production build it used. When neither holds them, build the
+   app as the audit does, without serving it, but only while the working tree is the version's commit,
+   unchanged; otherwise stop and say what is missing: a drawing in other styles is not the app.
+6. Write `review.html` again from the template, as report.md describes: every card from the records and
+   the capture, the coverage from step 3, and what changed since the first draft.
+7. Add to the version's `note` when it was corrected and what changed. Run the checker for the audit and
+   the app with `--report`, open the page as report.md describes, and fix everything either shows.
+8. Stop, as step 9 of `audit` does: the report's path, what the correction changed, the findings by
+   severity, what was not reached, and the decisions needed, ending on one question.
 
 ## Mode: decide
 
@@ -238,5 +290,6 @@ Stop and ask one framed question when:
 - the project gives no severity definitions and the maintainer has not confirmed the ones proposed;
 - a finding's verdict cannot be found and the maintainer has not given one;
 - two sources of design authority disagree;
-- a fix would contradict a principle, a rejection, or the design authority; or
+- a fix would contradict a principle, a rejection, or the design authority;
+- a correction is asked of a version that a round of verdicts has already decided on; or
 - someone outside the run is working in the project.
