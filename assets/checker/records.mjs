@@ -104,7 +104,17 @@ const SHAPES = {
   principle: { id: 'text', 'rule?': 'text', 'from?': 'someTexts', 'changed?': 'text', 'retired?': 'text' },
   fix: { version: 'version', date: 'date', findings: 'list' },
   entry: { id: 'text', 'proofs?': 'list', 'left?': 'text', 'departs?': 'text', 'earlierSteps?': 'texts' },
+  reconciled: { app: 'text', version: 'version' },
+  code: { path: 'path', 'package?': 'text', apps: 'someTexts' },
+  local: { app: 'text', finding: 'text', why: 'text' },
+  use: { app: 'text', where: 'text' },
 }
+
+// The keys only the shared records take, and those only an app's take: a shared version reconciles app versions and
+// its findings list the apps they reach, while an app's findings name the shared findings that took them.
+const SHARED_KEYS = { audit: { reconciled: 'list', code: 'list', 'local?': 'list' }, finding: { apps: 'list' } }
+const APP_KEYS = { finding: { 'shared?': 'someTexts' }, withdrawal: { 'shared?': 'text' } }
+const shapeOf = (records, name) => ({ ...SHAPES[name], ...(records.shared ? SHARED_KEYS : APP_KEYS)[name] })
 
 const PROOF_SHAPES = {
   test: { kind: 'text', file: 'path', title: 'text', 'note?': 'text' },
@@ -276,15 +286,19 @@ function readAudit(records, number, data, errors) {
     cleared: [],
     rounds: [],
     fixes: [],
+    reconciled: [],
+    code: [],
+    local: [],
   }
   const previous = records.versions.at(-1)
   records.versions.push(version)
   for (const [target, proposal] of previous?.proposals ?? []) {
     if (!proposal.answer) errors.push(`${previous.name} proposes reopening ${target}, and no round answered it before ${label}`)
   }
-  if (!checkShape(data, SHAPES.audit, version.name, errors)) return version
+  if (!checkShape(data, shapeOf(records, 'audit'), version.name, errors)) return version
   Object.assign(version, { date: data.date, commit: data.commit, report: data.report, cleared: data.cleared ?? [] })
   dated(records, version.name, data.date, errors)
+  if (records.shared) readShared(version, data, errors)
   readRechecks(records, version, data.rechecked ?? [], errors)
   readProposals(records, version, data.reopens ?? [], errors)
   readRaised(records, version, data.raised ?? [], errors)
@@ -295,6 +309,30 @@ function readAudit(records, number, data, errors) {
     cleared.add(item)
   }
   return version
+}
+
+// What a shared version reconciled: the app versions, the code they share, and the findings it left to their apps.
+function readShared(version, data, errors) {
+  for (const [index, entry] of data.reconciled.entries()) {
+    if (!checkShape(entry, SHAPES.reconciled, `${version.name}: reconciled[${index}]`, errors)) continue
+    if (version.reconciled.some((each) => each.app === entry.app)) errors.push(`${version.name} reconciles ${entry.app} twice; it reconciles one version of each app`)
+    else version.reconciled.push({ app: entry.app, version: entry.version })
+  }
+  if (data.reconciled.length === 0) errors.push(`${version.name} reconciles no app version`)
+  for (const [index, entry] of data.code.entries()) {
+    const where = `${version.name}: code[${index}]`
+    if (!checkShape(entry, SHAPES.code, where, errors)) continue
+    if (version.code.some((each) => each.path === entry.path)) errors.push(`${version.name} names the shared code ${entry.path} twice`)
+    else if (new Set(entry.apps).size < 2) errors.push(`${where}, ${entry.path}, names one app; code is shared when two apps or more use it`)
+    else version.code.push({ path: entry.path, package: entry.package ?? null, apps: [...new Set(entry.apps)] })
+  }
+  if (data.code.length === 0) errors.push(`${version.name} names no code the apps share`)
+  for (const [index, entry] of (data.local ?? []).entries()) {
+    if (!checkShape(entry, SHAPES.local, `${version.name}: local[${index}]`, errors)) continue
+    if (version.local.some((each) => each.app === entry.app && each.finding === entry.finding)) {
+      errors.push(`${version.name} keeps ${entry.app}'s ${entry.finding} local twice`)
+    } else version.local.push({ app: entry.app, finding: entry.finding })
+  }
 }
 
 function readRechecks(records, version, entries, errors) {
@@ -391,7 +429,7 @@ function readRaised(records, version, entries, errors) {
   }
   for (const [index, entry] of entries.entries()) {
     const where = `${version.name}: raised[${index}]`
-    if (!checkShape(entry, SHAPES.finding, where, errors)) continue
+    if (!checkShape(entry, shapeOf(records, 'finding'), where, errors)) continue
     const id = FINDING_ID.exec(entry.id)
     if (!id || PRINCIPLE_ID.test(entry.id)) {
       errors.push(`${where}'s id "${entry.id}" is not an area's letter and a number, such as B7`)
@@ -426,6 +464,10 @@ function readRaised(records, version, entries, errors) {
       title: entry.title,
       kind: entry.kind,
       severity: entry.severity,
+      where: entry.where,
+      proposal: entry.proposal,
+      apps: records.shared ? readUses(version, entry, errors) : [],
+      shared: records.shared ? [] : readPointers(records, version, entry.id, entry.shared ?? [], false, errors),
       raisedIn: version.number,
       status: 'open',
       decided: false,
@@ -433,6 +475,33 @@ function readRaised(records, version, entries, errors) {
     })
     version.raised.push(entry.id)
   }
+}
+
+// The apps a shared finding's change reaches, each with where it changes there: two or more.
+function readUses(version, entry, errors) {
+  const uses = []
+  for (const [index, use] of entry.apps.entries()) {
+    if (!checkShape(use, SHAPES.use, `${version.name}: ${entry.id}'s apps[${index}]`, errors)) continue
+    if (uses.some((each) => each.app === use.app)) errors.push(`${version.name}: ${entry.id} lists ${use.app} twice among its apps`)
+    else uses.push({ app: use.app, where: use.where })
+  }
+  if (entry.apps.length < 2) {
+    errors.push(`${version.name}: ${entry.id} lists ${entry.apps.length === 1 ? 'one app' : 'no app'}; a shared finding lists every app its change reaches, two or more`)
+  }
+  return uses
+}
+
+// The shared findings an app's finding or withdrawal names: moved is true for a withdrawal, whose finding one shared
+// finding took whole, and false for a finding a shared finding cut down to its part in this app.
+function readPointers(records, version, id, targets, moved, errors) {
+  const named = []
+  for (const target of targets) {
+    if (!FINDING_ID.test(target) || PRINCIPLE_ID.test(target)) errors.push(`${version.name}: ${id}'s shared "${target}" is not a shared finding's ID, such as F1`)
+    else if (named.includes(target)) errors.push(`${version.name}: ${id} names shared ${target} twice`)
+    else named.push(target)
+  }
+  if (named.length > 0) records.links.push({ file: version.name, version: version.label, id, shared: named, moved })
+  return named
 }
 
 // A correction withdraws a finding its own version raised: the ID leaves raised, stays taken, and is no finding.
@@ -448,7 +517,7 @@ function readWithdrawn(records, version, entries, errors) {
   }
   for (const [index, entry] of entries.entries()) {
     const where = `${version.name}: withdrawn[${index}]`
-    if (!checkShape(entry, SHAPES.withdrawal, where, errors)) continue
+    if (!checkShape(entry, shapeOf(records, 'withdrawal'), where, errors)) continue
     const id = FINDING_ID.exec(entry.id)
     if (!id || PRINCIPLE_ID.test(entry.id)) {
       errors.push(`${where}'s id "${entry.id}" is not an area's letter and a number, such as B7`)
@@ -479,13 +548,15 @@ function readWithdrawn(records, version, entries, errors) {
     }
     records.withdrawn.set(entry.id, version.number)
     version.withdrawn.push(entry.id)
+    if (!records.shared && has(entry, 'shared')) readPointers(records, version, entry.id, [entry.shared], true, errors)
   }
 }
 
 function readRound(records, version, { name, data }, errors) {
-  const round = { name, decisions: [] }
+  const round = { name, date: null, decisions: [] }
   version.rounds.push(round)
   if (!checkShape(data, SHAPES.round, name, errors)) return
+  round.date = data.date
   dated(records, name, data.date, errors)
   const answers = readAnswers(version, name, data.reopens ?? [], errors)
   const decided = readDecisions(records, version, round, data.decisions ?? [], answers, errors)
@@ -743,11 +814,14 @@ function finish(records, errors, complete) {
   }
 }
 
-export function checkRecords(files, { complete = false, audit = 'ui' } = {}) {
+// shared is true for an audit's shared records, in its shared/ folder, and false for an app's.
+export function checkRecords(files, { complete = false, audit = 'ui', shared = false } = {}) {
   const errors = []
   const read = readFiles(files, errors)
   const records = {
     audit,
+    shared,
+    links: [],
     config: readConfig(read.config, errors),
     versions: [],
     findings: new Map(),
@@ -773,6 +847,118 @@ export function checkRecords(files, { complete = false, audit = 'ui' } = {}) {
   if (latest === 0 && records.config) errors.push('the records hold no version; the first audit writes v1.json')
   finish(records, errors, complete)
   return { records, errors }
+}
+
+// An app's records against its audit's shared records, or null when the audit has none, both as checkRecords read
+// them: each shared finding the app's findings name is one the shared records raised and still hold.
+export function checkLinks(records, shared) {
+  const errors = []
+  for (const link of records.links) {
+    for (const target of link.shared) {
+      const problem = !shared
+        ? 'the audit has no shared records'
+        : shared.findings.has(target)
+          ? null
+          : shared.withdrawn.has(target)
+            ? `the shared v${shared.withdrawn.get(target)}.json withdrew it`
+            : 'the shared records never raised it'
+      if (problem) errors.push(`${link.file}: ${link.id} names shared ${target}, but ${problem}`)
+    }
+  }
+  return errors
+}
+
+// What each shared finding took from the apps, given a Map from each app's name to its records: from the shared
+// finding's ID to each app finding it took, { app, id, moved }, moved when it took the finding whole.
+export function takenFrom(apps) {
+  const taken = new Map()
+  for (const [app, records] of apps) {
+    for (const link of records.links) {
+      for (const target of link.shared) taken.set(target, [...(taken.get(target) ?? []), { app, id: link.id, moved: link.moved }])
+    }
+  }
+  return taken
+}
+
+// The shared records against the records of every app in their audit, a Map from each app's name to its records,
+// all as checkRecords read them. A version reconciles each app version once, before its verdicts, at the code it
+// looked at, and accounts for every finding there that names the shared code: a shared finding took it, whole or
+// in part, or the version kept it local and says why. Only a reconciled app version names shared findings.
+export function checkShared(shared, apps) {
+  const errors = []
+  const reconciledBy = new Map()
+  for (const version of shared.versions) {
+    const reconciled = []
+    for (const { app, version: number } of version.reconciled) {
+      const records = apps.get(app)
+      const reconciles = records?.versions[number - 1]
+      const by = reconciledBy.get(`${app} v${number}`)
+      if (!records) errors.push(`${version.name} reconciles ${app}, which has no records in this audit`)
+      else if (!reconciles) errors.push(`${version.name} reconciles ${app} v${number}, which ${app}'s records do not hold`)
+      else if (by) errors.push(`${version.name} reconciles ${app} v${number}, which ${by.name} reconciled; each app version is reconciled once`)
+      else {
+        reconciledBy.set(`${app} v${number}`, version)
+        reconciled.push({ app, records, reconciles })
+      }
+    }
+    if (reconciled.length > 0 && !reconciled.some(({ reconciles }) => reconciles.commit === version.commit)) {
+      errors.push(`${version.name} gives commit ${version.commit}, which none of the app versions it reconciles looked at; a reconcile reads the code at their commit`)
+    }
+    for (const { app, reconciles } of reconciled) {
+      if (version.date < reconciles.date) {
+        errors.push(`${version.name} is dated ${version.date}, before ${app}'s ${reconciles.name} (${reconciles.date}), which it reconciles`)
+      }
+      for (const round of reconciles.rounds.filter((each) => each.date && each.date < version.date)) {
+        errors.push(`${version.name} reconciles ${app} ${reconciles.label} on ${version.date}, after ${app}'s ${round.name} (${round.date}) decided on it; a reconcile comes before the verdicts`)
+      }
+    }
+    const named = [
+      ...version.code.flatMap((entry) => entry.apps),
+      ...version.raised.flatMap((id) => shared.findings.get(id).apps.map((use) => use.app)),
+      ...version.local.map((entry) => entry.app),
+    ]
+    for (const app of new Set(named)) if (!apps.has(app)) errors.push(`${version.name} names ${app}, which has no records in this audit`)
+    const names = version.code.flatMap((entry) => [entry.path, entry.package].filter(Boolean))
+    const naming = (text) => names.find((name) => new RegExp(`(?<![\\w./@-])${escapeExpression(name)}(?![\\w-])`).test(text))
+    for (const { app, records, reconciles } of reconciled) {
+      for (const id of reconciles.raised) {
+        const finding = records.findings.get(id)
+        const code = naming(finding.where) ?? naming(finding.proposal)
+        const kept = version.local.some((entry) => entry.app === app && entry.finding === id)
+        if (code && finding.shared.length === 0 && !kept) {
+          errors.push(
+            `${version.name} reconciles ${app} ${reconciles.label}, whose ${id} names the shared code ${code} but is not reconciled: name the shared findings that took its shared part, withdraw it into the one that took all of it, or keep it local and say why`,
+          )
+        }
+      }
+    }
+    for (const entry of version.local) {
+      const owner = reconciled.find((each) => each.app === entry.app)
+      const finding = owner?.reconciles.raised.includes(entry.finding) ? owner.records.findings.get(entry.finding) : null
+      if (!finding) errors.push(`${version.name} keeps ${entry.app}'s ${entry.finding} local, which no app version it reconciles raised`)
+      else if (finding.shared.length > 0) errors.push(`${version.name} keeps ${entry.app}'s ${entry.finding} local, but it names shared ${finding.shared.join(', ')}`)
+    }
+  }
+  // A shared finding lists every app it took a finding from when it was raised; a later reconcile that finds it in
+  // another app says so in its re-check, since a decided version never changes.
+  for (const [app, records] of apps) {
+    for (const link of records.links) {
+      const by = reconciledBy.get(`${app} ${link.version}`)
+      if (!by) {
+        errors.push(
+          `${app}'s ${link.file}: ${link.id} names shared ${link.shared.join(', ')}, but no shared version reconciled ${app} ${link.version}; only a reconcile moves a finding or cuts it down`,
+        )
+        continue
+      }
+      for (const target of link.shared) {
+        const finding = shared.findings.get(target)
+        if (finding?.raisedIn === by.number && !finding.apps.some((use) => use.app === app)) {
+          errors.push(`shared ${target} took ${app}'s ${link.id}, but its apps do not list ${app}`)
+        }
+      }
+    }
+  }
+  return errors
 }
 
 // Each proof of a finding that is done, or accepted or regressed with part of it fixed, since the decision
@@ -952,6 +1138,10 @@ export function summarize(records) {
       SEVERITIES,
     )
     const parts = [`raised ${version.raised.length}${severities ? ` (${severities})` : ''}`]
+    if (records.shared) {
+      parts.unshift(`reconciled ${version.reconciled.map((entry) => `${entry.app} v${entry.version}`).join(', ')}`)
+      if (version.local.length > 0) parts.push(`kept ${version.local.length} local`)
+    }
     if (version.withdrawn.length > 0) parts.push(`withdrew ${version.withdrawn.length}`)
     if (version.rechecked.length > 0) {
       parts.push(`re-checked ${version.rechecked.length}: ${tally(version.rechecked.map((entry) => entry.outcome), OUTCOMES)}`)
@@ -1062,8 +1252,10 @@ const showsNew = (tag) => showsCurrent(tag) || tag.name === 'svg' || (tag.name =
 
 // exists(path) answers whether a path the report refers to, relative to the report, exists. written is given for a
 // report this skill wrote rather than imported: written.read(path) gives the text of a file relative to the report,
-// or null, and written.template the text of the skill's own copy of each file TEMPLATE names.
-export function checkReport(records, html, exists, written = null) {
+// or null, and written.template the text of the skill's own copy of each file TEMPLATE names. linked is given with
+// written when the audit has shared records: for the shared report, linked.taken is what takenFrom gives; for an
+// app's, linked.cards maps each shared finding to the path, from the project's root, of the report holding its card.
+export function checkReport(records, html, exists, written = null, linked = null) {
   const latest = records.versions.at(-1)
   if (!latest) return ['the records have no version whose report could be checked']
   const errors = []
@@ -1100,7 +1292,87 @@ export function checkReport(records, html, exists, written = null) {
     if (path && !exists(path)) errors.push(`a drawing refers to ${target}, which does not exist`)
   }
   if (written) checkWritten(records, latest, html, markup, exists, written, errors)
+  if (written && linked) checkLinked(records, latest, markup, linked, errors)
   return errors
+}
+
+// A path from the project's root with its "." and ".." resolved.
+function normalized(path) {
+  const parts = []
+  for (const part of path.split('/')) {
+    if (part === '..') parts.pop()
+    else if (part !== '.' && part !== '') parts.push(part)
+  }
+  return parts.join('/')
+}
+
+// The path that leads from a folder to a file, both from the project's root.
+function pathFrom(folder, file) {
+  const from = normalized(folder).split('/').filter(Boolean)
+  const to = normalized(file).split('/')
+  let common = 0
+  while (common < from.length && common < to.length - 1 && from[common] === to[common]) common++
+  return [...Array(from.length - common).fill('..'), ...to.slice(common)].join('/')
+}
+
+// The text of a table's row, up to the next row or the end of its table.
+function rowText(markup, row) {
+  const end = markup.slice(row.end).search(/<\/?(?:tr|table)\b/i)
+  return markup.slice(row.end, end === -1 ? markup.length : row.end + end).replace(/<[^>]*>/g, ' ')
+}
+
+// What report.md asks of a report the shared records reach. The shared report's card shows every app its change
+// reaches, in a table of class "apps" with a row for each app that names the app's findings it took; an app's report
+// links the card of each shared finding that took one of its latest version's findings, from that finding's card
+// when it was cut down and from anywhere when it moved whole.
+function checkLinked(records, latest, markup, linked, errors) {
+  const tags = tagsOf(markup)
+  if (records.shared) {
+    for (const id of latest.raised) {
+      const card = tags.find((tag) => tag.attributes.get('id') === id)
+      if (!card || card.name !== 'section' || !isClassed(card, 'finding')) continue
+      const table = within(tags, markup, card).find((tag) => tag.name === 'table' && isClassed(tag, 'apps'))
+      if (!table) {
+        errors.push(`${id}'s card does not show the apps its change reaches: a <table class="data apps"> with a row, <tr data-app="…">, for each app its record lists`)
+        continue
+      }
+      const rows = new Map(
+        within(tags, markup, table)
+          .filter((tag) => tag.name === 'tr' && tag.attributes.has('data-app'))
+          .map((tag) => [tag.attributes.get('data-app'), rowText(markup, tag)]),
+      )
+      const { apps } = records.findings.get(id)
+      for (const { app } of apps) if (!rows.has(app)) errors.push(`${id}'s table of apps has no row for ${app}, a <tr data-app="${app}">`)
+      for (const app of rows.keys()) if (!apps.some((use) => use.app === app)) errors.push(`${id}'s table of apps has a row for ${app}, which its record does not list`)
+      for (const { app, id: taken } of linked.taken.get(id) ?? []) {
+        if (rows.has(app) && !new RegExp(`\\b${taken}\\b`).test(rows.get(app))) errors.push(`${id}'s row for ${app} does not name ${taken}, the finding of ${app}'s it took`)
+      }
+    }
+    return
+  }
+  const folder = latest.report.slice(0, latest.report.lastIndexOf('/') + 1)
+  const target = (href) => {
+    const at = href.indexOf('#')
+    if (at < 1 || EXTERNAL.test(href)) return null
+    return `${normalized(folder + decodeURI(href.slice(0, at)))}#${decodeURIComponent(href.slice(at + 1))}`
+  }
+  const linksIn = (scope) => new Set(scope.map((tag) => target(tag.attributes.get('href') ?? '')).filter(Boolean))
+  const everywhere = linksIn(tags)
+  for (const link of records.links.filter((each) => each.version === latest.label)) {
+    const card = tags.find((tag) => tag.attributes.get('id') === link.id)
+    if (!link.moved && !card) continue
+    const scope = link.moved ? everywhere : linksIn(within(tags, markup, card))
+    for (const shared of link.shared) {
+      const report = linked.cards.get(shared)
+      if (!report || scope.has(`${normalized(report)}#${shared}`)) continue
+      const href = `${pathFrom(folder, report)}#${shared}`
+      errors.push(
+        link.moved
+          ? `${link.id} moved to shared ${shared}, but the report does not link its card, ${href}`
+          : `${link.id}'s card does not link shared ${shared}, which took part of it: link its card, ${href}`,
+      )
+    }
+  }
 }
 
 // What report.md asks of a report this skill wrote from its template.

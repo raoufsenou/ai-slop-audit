@@ -6,7 +6,20 @@ import { dirname, join } from 'node:path'
 import { afterEach, test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { commandPlan, runCheck, runChecks } from './check-records.mjs'
-import { checkRecords, checkReport, checkReports, FORMAT, proofsToVerify, statusTable, summarize, TEMPLATE, verifyProofs } from './records.mjs'
+import {
+  checkLinks,
+  checkRecords,
+  checkReport,
+  checkReports,
+  checkShared,
+  FORMAT,
+  proofsToVerify,
+  statusTable,
+  summarize,
+  takenFrom,
+  TEMPLATE,
+  verifyProofs,
+} from './records.mjs'
 
 const CLI = join(dirname(fileURLToPath(import.meta.url)), 'check-records.mjs')
 const shipped = (name) => readFileSync(new URL(`../report/${name}`, import.meta.url), 'utf8')
@@ -1130,6 +1143,402 @@ test("records outside an audit's app folder are refused before any app is read, 
   )
   assert.deepEqual(runChecks({ root: temporaryRoot() }), refusal('docs/audit', 'there are no records at docs/audit'))
   assert.deepEqual(runChecks({ root: temporaryRoot(), audit: 'non-ui' }), refusal('docs/audit/non-ui', 'there are no records at docs/audit/non-ui'))
+})
+
+const raisedFinding = (id, where, proposal, more = {}) => ({ id, title: 'x', kind: 'defect', severity: 'medium', where, problem: 'x', proposal, ...more })
+
+// Two apps whose findings were reconciled: the shared F1 took admin's A1 whole and the frame's part of bank's A1, and
+// bank's B1, which names the shared code, stays local.
+function reconciled({ commit = 'ac386b3' } = {}) {
+  const config = (...areas) => ({ format: FORMAT, standards: valid()['config.json'].standards, areas })
+  const layout = { letter: 'A', name: 'Layout', covers: 'the frame every page shares' }
+  const version = (app, more) => ({ date: '2026-10-08', commit, scope: 'Every screen and state', report: `docs/audit/ui/${app}/reports/v1/review.html`, ...more })
+  return {
+    admin: {
+      'config.json': config(layout),
+      'v1.json': version('admin', {
+        raised: [raisedFinding('A2', 'the settings page', 'one column')],
+        withdrawn: [{ id: 'A1', why: 'the frame scrolls in every app, which the shared F1 changes once', shared: 'F1' }],
+      }),
+    },
+    bank: {
+      'config.json': config(layout, { letter: 'B', name: 'Words', covers: 'what the app says' }),
+      'v1.json': version('bank', {
+        raised: [
+          raisedFinding('A1', 'the transfer page, whose frame is packages/design/src/frame.tsx', 'the balance stays in view', { shared: ['F1'] }),
+          raisedFinding('B1', 'the transfer form, built from @shared/design', "the labels in the bank's words"),
+        ],
+      }),
+    },
+    shared: {
+      'config.json': config({ letter: 'F', name: 'Frame', covers: 'the frame the apps share' }),
+      'v1.json': {
+        date: '2026-10-09',
+        commit,
+        scope: 'The code the apps share',
+        report: 'docs/audit/ui/shared/reports/v1/review.html',
+        reconciled: [
+          { app: 'admin', version: 1 },
+          { app: 'bank', version: 1 },
+        ],
+        code: [{ path: 'packages/design', package: '@shared/design', apps: ['admin', 'bank'] }],
+        raised: [
+          raisedFinding('F1', 'packages/design/src/frame.tsx', 'only the content pane scrolls', {
+            apps: [
+              { app: 'admin', where: 'every page' },
+              { app: 'bank', where: 'the transfer page' },
+            ],
+          }),
+        ],
+        local: [{ app: 'bank', finding: 'B1', why: "the labels are the bank's words; the fields stay as they are" }],
+      },
+    },
+  }
+}
+
+// Each folder's records as checkRecords reads them, each passing on its own: the apps' in a Map, and the shared ones.
+function readReconciled(folders) {
+  const apps = new Map()
+  let shared = null
+  for (const [name, records] of Object.entries(folders)) {
+    const { records: read, errors } = checkRecords(filesOf(records), { shared: name === 'shared' })
+    assert.deepEqual(errors, [], name)
+    if (name === 'shared') shared = read
+    else apps.set(name, read)
+  }
+  return { apps, shared }
+}
+
+test('reconciled records pass: each app finding that names the shared code is accounted for, and each pointer finds its shared finding', () => {
+  const { apps, shared } = readReconciled(reconciled())
+  assert.deepEqual(checkShared(shared, apps), [])
+  for (const records of apps.values()) assert.deepEqual(checkLinks(records, shared), [])
+  assert.deepEqual(summarize(shared), [
+    '1 finding in 1 area, 1 version, 0 principles',
+    'v1 2026-10-09 ac386b3: reconciled admin v1, bank v1; raised 1 (1 medium); kept 1 local',
+  ])
+  assert.deepEqual(
+    [...takenFrom(apps)],
+    [
+      [
+        'F1',
+        [
+          { app: 'admin', id: 'A1', moved: true },
+          { app: 'bank', id: 'A1', moved: false },
+        ],
+      ],
+    ],
+  )
+})
+
+const sharedRefusals = [
+  ['a shared version gives no reconciled', 'shared', (r) => delete r['v1.json'].reconciled, 'v1.json gives no reconciled'],
+  ['a shared version reconciles no app version', 'shared', (r) => (r['v1.json'].reconciled = []), 'v1.json reconciles no app version'],
+  [
+    'a shared version reconciles an app twice',
+    'shared',
+    (r) => r['v1.json'].reconciled.push({ app: 'admin', version: 2 }),
+    'v1.json reconciles admin twice; it reconciles one version of each app',
+  ],
+  ['a shared version names no shared code', 'shared', (r) => (r['v1.json'].code = []), 'v1.json names no code the apps share'],
+  [
+    'shared code is used by one app',
+    'shared',
+    (r) => (r['v1.json'].code[0].apps = ['admin', 'admin']),
+    'v1.json: code[0], packages/design, names one app; code is shared when two apps or more use it',
+  ],
+  [
+    'shared code is named twice',
+    'shared',
+    (r) => r['v1.json'].code.push({ path: 'packages/design', apps: ['admin', 'bank'] }),
+    'v1.json names the shared code packages/design twice',
+  ],
+  [
+    'a shared finding lists one app',
+    'shared',
+    (r) => r['v1.json'].raised[0].apps.pop(),
+    'v1.json: F1 lists one app; a shared finding lists every app its change reaches, two or more',
+  ],
+  [
+    'a shared finding lists an app twice',
+    'shared',
+    (r) => r['v1.json'].raised[0].apps.push({ app: 'admin', where: 'the home' }),
+    'v1.json: F1 lists admin twice among its apps',
+  ],
+  ['a shared finding names shared findings', 'shared', (r) => (r['v1.json'].raised[0].shared = ['F2']), 'has "shared", which the format does not name'],
+  ['a finding is kept local twice', 'shared', (r) => r['v1.json'].local.push(r['v1.json'].local[0]), "v1.json keeps bank's B1 local twice"],
+  ["an app's finding lists apps", 'bank', (r) => (r['v1.json'].raised[1].apps = []), 'has "apps", which the format does not name'],
+  ["an app's version reconciles", 'bank', (r) => (r['v1.json'].reconciled = []), 'has "reconciled", which the format does not name'],
+  [
+    "an app's finding names a principle as shared",
+    'bank',
+    (r) => (r['v1.json'].raised[0].shared = ['P1']),
+    'v1.json: A1\'s shared "P1" is not a shared finding\'s ID, such as F1',
+  ],
+  ["an app's finding names a shared finding twice", 'bank', (r) => r['v1.json'].raised[0].shared.push('F1'), 'v1.json: A1 names shared F1 twice'],
+  [
+    "an app's withdrawal names a list of shared findings",
+    'admin',
+    (r) => (r['v1.json'].withdrawn[0].shared = ['F1']),
+    "v1.json: withdrawn[0]'s shared is not a non-empty string",
+  ],
+]
+
+for (const [name, folder, change, expected] of sharedRefusals) {
+  test(`refused when ${name}`, () => {
+    const records = reconciled()[folder]
+    change(records)
+    assertRefused(records, expected, { shared: folder === 'shared' })
+  })
+}
+
+test("an app's finding names a shared finding the shared records still hold", () => {
+  const folders = reconciled()
+  folders.bank['v1.json'].raised[0].shared = ['F2', 'F3']
+  folders.shared['v1.json'].withdrawn = [{ id: 'F2', why: 'the same change as F1' }]
+  const { apps, shared } = readReconciled(folders)
+  assert.deepEqual(checkLinks(apps.get('bank'), shared), [
+    'v1.json: A1 names shared F2, but the shared v1.json withdrew it',
+    'v1.json: A1 names shared F3, but the shared records never raised it',
+  ])
+  assert.deepEqual(checkLinks(apps.get('admin'), null), ['v1.json: A1 names shared F1, but the audit has no shared records'])
+})
+
+// A third app, audited with the others, its v1 holding what more gives.
+const walletOf = (folders, more) => ({
+  'config.json': folders.admin['config.json'],
+  'v1.json': { ...folders.admin['v1.json'], report: 'docs/audit/ui/wallet/reports/v1/review.html', withdrawn: [], raised: [], ...more },
+})
+
+const crossRefusals = [
+  ['a version reconciles an app with no records', (f) => f.shared['v1.json'].reconciled.push({ app: 'wallet', version: 1 }), 'v1.json reconciles wallet, which has no records in this audit'],
+  [
+    "a version reconciles a version the app's records do not hold",
+    (f) => (f.shared['v1.json'].reconciled[0].version = 2),
+    [
+      "v1.json reconciles admin v2, which admin's records do not hold",
+      "admin's v1.json: A1 names shared F1, but no shared version reconciled admin v1; only a reconcile moves a finding or cuts it down",
+    ],
+  ],
+  [
+    'a version reconciles an app version an earlier one reconciled',
+    (f) =>
+      (f.shared['v2.json'] = {
+        ...f.shared['v1.json'],
+        date: '2026-10-10',
+        reconciled: [{ app: 'admin', version: 1 }],
+        raised: [],
+        local: [],
+        rechecked: [{ finding: 'F1', outcome: 'open', observed: 'the frame still scrolls' }],
+      }),
+    'v2.json reconciles admin v1, which v1.json reconciled; each app version is reconciled once',
+  ],
+  [
+    'a version gives a commit none of the app versions looked at',
+    (f) => (f.shared['v1.json'].commit = '1999623'),
+    'v1.json gives commit 1999623, which none of the app versions it reconciles looked at; a reconcile reads the code at their commit',
+  ],
+  [
+    'a version is dated before the app versions it reconciles',
+    (f) => (f.shared['v1.json'].date = '2026-10-07'),
+    [
+      "v1.json is dated 2026-10-07, before admin's v1.json (2026-10-08), which it reconciles",
+      "v1.json is dated 2026-10-07, before bank's v1.json (2026-10-08), which it reconciles",
+    ],
+  ],
+  [
+    'a version reconciles an app version after its verdicts',
+    (f) => (f.admin['v1-verdicts.json'] = { date: '2026-10-08', by: 'the maintainer', decisions: [{ finding: 'A2', verdict: 'rejected', reason: 'one column is the design' }] }),
+    "v1.json reconciles admin v1 on 2026-10-09, after admin's v1-verdicts.json (2026-10-08) decided on it; a reconcile comes before the verdicts",
+  ],
+  ['a version names an app with no records', (f) => f.shared['v1.json'].code[0].apps.push('wallet'), 'v1.json names wallet, which has no records in this audit'],
+  [
+    'an app finding that names the shared code is left unreconciled',
+    (f) => delete f.shared['v1.json'].local,
+    'v1.json reconciles bank v1, whose B1 names the shared code @shared/design but is not reconciled: name the shared findings that took its shared part, withdraw it into the one that took all of it, or keep it local and say why',
+  ],
+  [
+    'a version keeps local what no app version it reconciles raised',
+    (f) => f.shared['v1.json'].local.push({ app: 'admin', finding: 'A1', why: "the frame is the admin app's own" }),
+    "v1.json keeps admin's A1 local, which no app version it reconciles raised",
+  ],
+  [
+    'a version keeps local what a shared finding took',
+    (f) => f.shared['v1.json'].local.push({ app: 'bank', finding: 'A1', why: "the balance is the bank's own" }),
+    "v1.json keeps bank's A1 local, but it names shared F1",
+  ],
+  [
+    'a shared finding took a finding from an app it does not list',
+    (f) => {
+      f.wallet = walletOf(f, { raised: [raisedFinding('A1', 'the home', 'x', { shared: ['F1'] })] })
+      f.shared['v1.json'].reconciled.push({ app: 'wallet', version: 1 })
+    },
+    "shared F1 took wallet's A1, but its apps do not list wallet",
+  ],
+  [
+    'an app version no shared version reconciled names a shared finding',
+    (f) => (f.wallet = walletOf(f, { raised: [raisedFinding('A1', 'the home', 'x', { shared: ['F1'] })] })),
+    "wallet's v1.json: A1 names shared F1, but no shared version reconciled wallet v1; only a reconcile moves a finding or cuts it down",
+  ],
+]
+
+for (const [name, change, expected] of crossRefusals) {
+  test(`the shared records are refused when ${name}`, () => {
+    const folders = reconciled()
+    change(folders)
+    const { apps, shared } = readReconciled(folders)
+    assert.deepEqual(checkShared(shared, apps), [expected].flat())
+  })
+}
+
+test("a later reconcile moves a new app's finding into an earlier shared finding, whose apps stay as raised", () => {
+  const folders = reconciled()
+  folders.wallet = walletOf(folders, {
+    raised: [raisedFinding('A2', 'the home', 'x')],
+    withdrawn: [{ id: 'A1', why: 'the frame the shared F1 changes', shared: 'F1' }],
+  })
+  folders.shared['v2.json'] = {
+    ...folders.shared['v1.json'],
+    date: '2026-10-10',
+    report: 'docs/audit/ui/shared/reports/v2/review.html',
+    reconciled: [{ app: 'wallet', version: 1 }],
+    code: [{ path: 'packages/design', package: '@shared/design', apps: ['admin', 'bank', 'wallet'] }],
+    rechecked: [{ finding: 'F1', outcome: 'open', observed: 'the frame still scrolls, in the wallet too' }],
+    raised: [],
+    local: [],
+  }
+  const { apps, shared } = readReconciled(folders)
+  assert.deepEqual(checkShared(shared, apps), [])
+})
+
+test('a reconcile on the day of the verdicts comes before them', () => {
+  const folders = reconciled()
+  folders.admin['v1-verdicts.json'] = { date: '2026-10-09', by: 'the maintainer', decisions: [{ finding: 'A2', verdict: 'rejected', reason: 'one column is the design' }] }
+  const { apps, shared } = readReconciled(folders)
+  assert.deepEqual(checkShared(shared, apps), [])
+})
+
+// A card report.md lays out, its current state and new version given as code, with what inside adds to it.
+const codeCard = (id, inside = '') =>
+  [
+    `<section class="finding" id="${id}"><header><div class="meta"><span class="fid">${id}</span><span class="tag medium">Medium</span>`,
+    `<span class="tag type">Build defect</span></div><h3>x</h3></header><div class="why"><p>x</p></div>${inside}`,
+    '<div class="cmp"><div class="side now"><p class="label">Current</p><pre><code>x</code></pre></div>',
+    '<div class="side new"><p class="label">New version</p><pre><code>y</code></pre></div></div></section>',
+  ].join('')
+
+// A report from the template holding the cards, then more, then the appendix of what was examined linking each card.
+const reportOf = (cards, ids, more = '') =>
+  [
+    '<!doctype html><html><head><link rel="stylesheet" href="report.css"></head><body>',
+    cards,
+    more,
+    `<section class="appendix" id="coverage">${ids.map((id) => `<a href="#${id}">${id}</a>`).join('')}</section>`,
+    '<script src="report.js"></script></body></html>',
+  ].join('')
+
+const APPS_TABLE =
+  '<table class="data apps"><tr data-app="admin"><td>Admin</td><td>Every page, from its A1</td></tr><tr data-app="bank"><td>Bank</td><td>The transfer page, from its A1</td></tr></table>'
+const SHARED_CARD = '../../../shared/reports/v1/review.html#F1'
+const RECONCILED_REPORTS = {
+  admin: reportOf(codeCard('A2'), ['A2'], `<p>A1 moved to the <a href="${SHARED_CARD}">shared frame</a>.</p>`),
+  bank: reportOf(codeCard('A1', `<p>The frame itself changes <a href="${SHARED_CARD}">once, for every app</a>.</p>`) + codeCard('B1'), ['A1', 'B1']),
+  shared: reportOf(codeCard('F1', APPS_TABLE), ['F1']),
+}
+
+// Checks a report this skill wrote for one folder of the reconciled records, as the command does when the audit has
+// shared records; every file it refers to is there.
+function reconciledReport(name, html) {
+  const { apps, shared } = readReconciled(reconciled())
+  const linked = name === 'shared' ? { taken: takenFrom(apps) } : { cards: new Map([['F1', shared.versions[0].report]]) }
+  const records = name === 'shared' ? shared : apps.get(name)
+  return checkReport(records, html, () => true, { read: (path) => SHIPPED[path] ?? null, template: SHIPPED }, linked)
+}
+
+test("the shared report shows each card's apps, and an app's report links the shared card that took its finding", () => {
+  for (const [name, html] of Object.entries(RECONCILED_REPORTS)) assert.deepEqual(reconciledReport(name, html), [], name)
+})
+
+const linkedRefusals = [
+  [
+    "the shared report's card does not show its apps",
+    'shared',
+    RECONCILED_REPORTS.shared.replace(APPS_TABLE, ''),
+    'F1\'s card does not show the apps its change reaches: a <table class="data apps"> with a row, <tr data-app="…">, for each app its record lists',
+  ],
+  [
+    "the shared report's table of apps has no row for an app the record lists",
+    'shared',
+    RECONCILED_REPORTS.shared.replace('<tr data-app="bank">', '<tr>'),
+    'F1\'s table of apps has no row for bank, a <tr data-app="bank">',
+  ],
+  [
+    "the shared report's table of apps has a row for an app the record does not list",
+    'shared',
+    RECONCILED_REPORTS.shared.replace('</table>', '<tr data-app="wallet"><td>Wallet</td></tr></table>'),
+    "F1's table of apps has a row for wallet, which its record does not list",
+  ],
+  [
+    "the shared report's row for an app does not name the finding it took there",
+    'shared',
+    RECONCILED_REPORTS.shared.replace('The transfer page, from its A1', 'The transfer page'),
+    "F1's row for bank does not name A1, the finding of bank's it took",
+  ],
+  [
+    "an app's cut-down finding links the shared card from outside its own card",
+    'bank',
+    reportOf(codeCard('A1') + codeCard('B1'), ['A1', 'B1'], `<a href="${SHARED_CARD}">the shared frame</a>`),
+    "A1's card does not link shared F1, which took part of it: link its card, ../../../shared/reports/v1/review.html#F1",
+  ],
+  [
+    "an app's moved finding does not link the shared card",
+    'admin',
+    reportOf(codeCard('A2'), ['A2'], '<p>A1 moved to the shared frame.</p>'),
+    'A1 moved to shared F1, but the report does not link its card, ../../../shared/reports/v1/review.html#F1',
+  ],
+]
+
+for (const [name, folder, html, expected] of linkedRefusals) {
+  test(`a report is refused when ${name}`, () => assert.deepEqual(reconciledReport(folder, html), [expected]))
+}
+
+test('the command checks the shared records against every app, each app against them, and their reports', () => {
+  const { root, audited } = project()
+  const folders = reconciled({ commit: audited })
+  for (const [name, records] of Object.entries(folders)) writeRecords(root, records, `docs/audit/ui/${name}`)
+  assert.deepEqual(
+    runChecks({ root, audit: 'ui' }).map((result) => [result.records, result.errors]),
+    [
+      ['docs/audit/ui/admin', []],
+      ['docs/audit/ui/bank', []],
+      ['docs/audit/ui/course', []],
+      ['docs/audit/ui/shared', []],
+    ],
+  )
+  write(root, '.gitignore', 'docs/audit/*/*/reports/\n')
+  for (const [name, html] of Object.entries(RECONCILED_REPORTS)) {
+    for (const [file, text] of Object.entries({ 'review.html': html, 'report.css': shipped('report.css'), 'report.js': shipped('report.js') })) {
+      write(root, `docs/audit/ui/${name}/reports/v1/${file}`, text)
+    }
+  }
+  for (const name of Object.keys(RECONCILED_REPORTS)) assert.deepEqual(runCheck({ root, audit: 'ui', app: name, report: true }).errors, [], name)
+  write(root, 'docs/audit/ui/bank/reports/v1/review.html', RECONCILED_REPORTS.bank.replace(`<a href="${SHARED_CARD}">once, for every app</a>`, 'once, for every app'))
+  assert.deepEqual(runCheck({ root, audit: 'ui', app: 'bank', report: true }).errors, [
+    "A1's card does not link shared F1, which took part of it: link its card, ../../../shared/reports/v1/review.html#F1",
+  ])
+  const unreconciled = structuredClone(folders.shared)
+  delete unreconciled['v1.json'].reconciled
+  writeRecords(root, unreconciled, 'docs/audit/ui/shared')
+  assert.deepEqual(runCheck({ root, audit: 'ui', app: 'bank' }).errors, [
+    "docs/audit/ui/shared does not pass on its own, so bank's records cannot be checked against it: run the checker on shared",
+  ])
+  writeRecords(root, folders.shared, 'docs/audit/ui/shared')
+  const uncommitted = structuredClone(folders.admin)
+  delete uncommitted['v1.json'].commit
+  writeRecords(root, uncommitted, 'docs/audit/ui/admin')
+  assert.deepEqual(runCheck({ root, audit: 'ui', app: 'shared' }).errors, [
+    'docs/audit/ui/admin does not pass on its own, so the shared records cannot be checked against it: run the checker on admin',
+  ])
 })
 
 test('the command reads the audit, then the app, each optional, and its flags', () => {

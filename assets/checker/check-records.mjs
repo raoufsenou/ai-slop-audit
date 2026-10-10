@@ -4,13 +4,26 @@ import { spawnSync } from 'node:child_process'
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs'
 import { dirname, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { checkRecords, checkReport, checkReports, proofsToVerify, statusTable, summarize, TEMPLATE, verifyProofs } from './records.mjs'
+import {
+  checkLinks,
+  checkRecords,
+  checkReport,
+  checkReports,
+  checkShared,
+  proofsToVerify,
+  statusTable,
+  summarize,
+  takenFrom,
+  TEMPLATE,
+  verifyProofs,
+} from './records.mjs'
 
 const RECORDS = 'docs/audit'
 const AUDITS = ['ui', 'non-ui']
 const REPORTS = 'reports'
+const SHARED = 'shared'
 const TEMPLATE_FOLDER = fileURLToPath(new URL('../report/', import.meta.url))
-const USAGE = 'Usage: node check-records.mjs [ui|non-ui] [app] [--complete] [--report]'
+const USAGE = 'Usage: node check-records.mjs [ui|non-ui] [app|shared] [--complete] [--report]'
 
 export function commandPlan(args) {
   const plan = { audit: null, app: null, complete: false, report: false }
@@ -122,19 +135,54 @@ export function projectLook(root) {
   }
 }
 
+// The records of another folder of the audit, read as checkRecords reads them, or an error when they do not pass on
+// their own, since what they hold cannot then be trusted.
+function recordsOf(root, audit, name, against) {
+  const read = checkRecords(readFolder(resolve(root, RECORDS, audit, name)), { audit, shared: name === SHARED })
+  if (read.errors.length === 0) return { records: read.records, errors: [] }
+  return { records: null, errors: [`${RECORDS}/${audit}/${name} does not pass on its own, so ${against} cannot be checked against it: run the checker on ${name}`] }
+}
+
+// The shared records against every app's records in the audit, and an app's against the shared records, when the
+// audit has them; with what the report check needs to know of the other side.
+function checkAcross(root, audit, app, records) {
+  if (app === SHARED) {
+    const apps = new Map()
+    const errors = []
+    for (const entry of entriesOf(root, `${RECORDS}/${audit}`).filter((each) => each.isDirectory() && each.name !== SHARED)) {
+      const read = recordsOf(root, audit, entry.name, 'the shared records')
+      errors.push(...read.errors)
+      if (read.records) apps.set(entry.name, read.records)
+    }
+    if (errors.length > 0) return { errors, linked: null }
+    return { errors: checkShared(records, apps), linked: { taken: takenFrom(apps) } }
+  }
+  if (!existsSync(resolve(root, RECORDS, audit, SHARED))) return { errors: checkLinks(records, null), linked: null }
+  const read = recordsOf(root, audit, SHARED, `${app}'s records`)
+  if (!read.records) return { errors: read.errors, linked: null }
+  const cards = new Map([...read.records.findings.values()].map((finding) => [finding.id, read.records.versions[finding.raisedIn - 1].report]))
+  return { errors: checkLinks(records, read.records), linked: { cards } }
+}
+
 export function runCheck({ root, audit, app, complete = false, report = false, look = projectLook(root) }) {
   const records = `${RECORDS}/${audit}/${app}`
   const folder = resolve(root, records)
   if (!existsSync(folder) || !statSync(folder).isDirectory()) return { errors: [`there are no records at ${records}`], summary: [], verified: 0 }
-  const result = checkRecords(readFolder(folder), { complete, audit })
+  const result = checkRecords(readFolder(folder), { complete, audit, shared: app === SHARED })
   const errors = [...result.errors]
   const reports = `${records}/${REPORTS}`
   if (existsSync(resolve(root, reports)) && !look.ignores(reports)) errors.push(`Git does not ignore ${reports}/: add ${RECORDS}/*/*/${REPORTS}/ to .gitignore`)
   let verified = 0
+  let linked = null
   if (errors.length === 0) {
     for (const version of result.records.versions) {
       if (!look.knows(version.commit)) errors.push(`${version.name}'s commit ${version.commit} is not a commit of this repository`)
     }
+  }
+  if (errors.length === 0) {
+    const across = checkAcross(root, audit, app, result.records)
+    errors.push(...across.errors)
+    linked = across.linked
   }
   if (errors.length === 0) {
     const items = proofsToVerify(result.records).filter((item) => item.proof.kind !== 'eye')
@@ -159,7 +207,7 @@ export function runCheck({ root, audit, app, complete = false, report = false, l
               template: Object.fromEntries(Object.keys(TEMPLATE).map((name) => [name, readFileSync(join(TEMPLATE_FOLDER, name), 'utf8')])),
             }
           : null
-      errors.push(...checkReport(result.records, readFileSync(absolute, 'utf8'), exists, written))
+      errors.push(...checkReport(result.records, readFileSync(absolute, 'utf8'), exists, written, linked))
     }
     const kept = resolve(root, reports)
     const file = (name, path) => resolve(kept, name, path)
@@ -199,7 +247,8 @@ function entriesOf(root, path) {
 }
 
 // The app named, or every app, of the audit named, or of both. docs/audit/ holds one folder per audit, ui/ and
-// non-ui/, and each of them one folder per app, named for it; neither holds anything else.
+// non-ui/, and each of them one folder per app, named for it, and shared/ when the apps' findings were reconciled;
+// neither holds anything else.
 export function runChecks({ root, audit = null, app = null, complete = false, report = false, look = projectLook(root) }) {
   const refused = (records, error) => [{ records, errors: [error], summary: [], verified: 0 }]
   const top = entriesOf(root, RECORDS)
