@@ -1,26 +1,17 @@
 # The report
 
-Each version writes one disposable HTML page, `docs/audit/<app>/reports/vN/review.html`, with its
-screenshots and capture scripts beside it; git ignores `reports/`. The maintainer reads it once and decides
-from it; the records keep what it found. Never overwrite an earlier version's folder.
+Each version writes one disposable HTML page, `docs/audit/<audit>/<app>/reports/vN/review.html`, with what
+its capture made beside it: its scripts, its facts file, and, in the UI audit, its screenshots; git ignores
+`reports/`. The maintainer reads it once and decides from it; the records keep what it found. Never overwrite
+an earlier version's folder.
 
-## Capture
-
-- Build the app the way it ships, a production build of the commit the version's file records, and serve it
-  on a port the project does not use for development.
-- Serve copies of real data at real size, never the originals. Point every paid or external service at an
-  address that refuses connections, such as `http://127.0.0.1:9`, so no click can spend money or send
-  anything.
-- Capture with a script in the version's report folder, driving a browser through each screen and state at
-  1440 × 900 and 390 × 844: full-page and element screenshots, and the measurements each finding cites
-  (heights, contrast ratios, counts, durations) written to a facts file the report quotes.
-- Prefer the project's own committed measuring tools where they exist. A measurement that will become a
-  proof belongs in the project, not in the report's folder.
-- Write every command in the report's capture appendix, so the next version can repeat the capture.
+Both audits lay out their reports the same way. How to capture, and what a card's current state and new
+version are, is in the audit's own reference: [ui.md](ui.md) or [non-ui.md](non-ui.md).
 
 ## Layout
 
-1. Title and lede: what was audited, at which commit, from what data, and how paid calls were refused.
+1. Title and lede: which audit, UI or non-UI, what it covered, at which commit, from what data, and how paid
+   calls were refused.
 2. The numbers: findings by severity and by kind; from v2 on, also how many came back, are still open, hold,
    became obsolete, and are proposed for reopening.
 3. The pattern behind most of it: the few causes, each naming the findings it explains.
@@ -52,14 +43,10 @@ from it; the records keep what it found. Never overwrite an earlier version's fo
 ```
 
 - The element's `id` is the finding's ID; `--report` checks that every new finding has one.
-- Current is always the real thing: a screenshot from the capture, cropped to the part in question and
-  labelled with its measurement, or the code quoted with its path and lines.
-- Draw the new version as HTML and CSS in the page whenever it is a question of design (layout, words,
-  states, the visual system), using the app's own tokens and type copied into the report's stylesheet, so
-  old and new compare at the same scale. Give code as code. A sentence is never the new version of a
-  screen.
-- One finding per problem. Two problems on one screen are two cards; one problem on ten screens is one.
-- Severity and kind come from the config's standards, never from how bad a screenshot looks.
+- Current is always the real thing, and a sentence is never the new version; the audit's reference says
+  what each is.
+- One finding per problem. Two problems in one place are two cards; one problem in ten places is one.
+- Severity and kind come from the config's standards, never from how bad the current state looks.
 
 ## Before handing it over
 
@@ -69,7 +56,8 @@ from it; the records keep what it found. Never overwrite an earlier version's fo
 
 ## Importing an earlier report
 
-An earlier report becomes v1 as it is: its path goes in `v1.json`'s `report`, and the file stays where it is.
+An earlier report becomes v1 as it is, of the audit its findings belong to, or of each audit when it holds
+findings of both: its path goes in each `v1.json`'s `report`, and the file stays where it is.
 Take its date from the report, and the commit it was captured from from its capture appendix or from the
 project's plan. When neither says, use the last commit before the capture (`git log --before`) and say so in
 its scope. Findings keep the report's IDs and areas, and the report's tag for each finding gives its kind:
