@@ -323,8 +323,9 @@ Follow [fixing.md](references/fixing.md).
 4. Close each finding in the step's fix file, `docs/audit/<audit>/<app>/fixes/<STEP>.json`, or
    `docs/audit/<audit>/shared/fixes/<STEP>.json` for a shared finding, with its proofs: a test that fails without the fix, a search or a file's text for a fact about the files
    themselves, or, for a pure matter of taste in the UI audit, a look by eye recorded with its screenshot. A
-   finding whose proofs cannot fail on each defect its title names stays `accepted`, its entry saying what
-   is left.
+   finding about a kind of problem closes with proof over every instance of it, not one proof per instance
+   found. A finding whose proofs cannot fail on each defect its title names stays `accepted`, its entry
+   saying what is left.
 5. Run the checker after every step, and with `--complete` when the round is done. Every run of the checker
    verifies every proof again.
 

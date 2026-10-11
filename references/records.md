@@ -374,10 +374,10 @@ a decided version never changes. The checker reads every app's records when it c
 
 ## What the checker cannot see
 
-It checks that a proof exists and could fail, not that it fails on each defect the finding's title names;
-that a test is declared, not that it passes; that the toolkit is a folder Git keeps, not that every capture
-and fix measured with it and left in it what a later run would write again; that a re-check is recorded,
-not that it was done; and that an
+It checks that a proof exists and could fail, not that it fails on each defect the finding's title names,
+or on every instance of a kind of problem the title names; that a test is declared, not that it passes;
+that the toolkit is a folder Git keeps, not that every capture and fix measured with it and left in it what
+a later run would write again; that a re-check is recorded, not that it was done; and that an
 ID is new, not that its problem is not already in the records under another; that the config changed only
 by the maintainer's decision; that a version's file was corrected only before its first round of
 verdicts; and that a reconcile found every finding about shared code, since it holds to account only the

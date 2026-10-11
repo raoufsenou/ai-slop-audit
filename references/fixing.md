@@ -46,6 +46,12 @@ The defects a proof must fail on are the ones the finding's title names. A detai
 proposal gives does not hold it open; if that detail breaks later, a later version raises it as a finding of
 its own. So a title names each defect the finding is about, and nothing it is not.
 
+A finding about a kind of problem, such as pages that do not name themselves in the browser's title, closes
+with proof over the kind: a test that walks every page, route, or file, or the check or lint rule that
+refuses the problem anywhere, so the next one built without the fix fails too. A proof for each instance
+found, a line pinned in each of nineteen files, passes on a page added a month later that repeats the
+problem, and the kind comes back unseen. Pin an instance only where the title names that instance alone.
+
 An eye proof is the last resort. It says what was compared with what, and it is never used where a
 measurement exists. Only the UI audit uses one.
 
