@@ -157,6 +157,8 @@ and `--complete` to refuse anything still waiting for a decision or a fix. Use `
 - An audit, a report, or a reconcile stops at your decisions. Verdicts and fixes are prompts of their own.
 - A report or a reconcile changes a version only before its first verdict. After that, the next audit
   corrects it, in the open.
+- A fix's own scripts are deleted when its step closes. Their numbers stay in the proofs' notes; a helper or
+  check worth keeping goes into the toolkit, and a check worth running on every change becomes a test.
 - The project's own instructions, such as its `AGENTS.md`, win where they disagree with the skill.
 - If another session or person is working in the project, the agent writes nothing there and stops.
 

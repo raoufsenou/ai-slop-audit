@@ -318,8 +318,9 @@ Follow [fixing.md](references/fixing.md).
    would have caught them. Each step is small enough to verify alone and names the finding IDs it closes.
 2. Put the steps where the project tracks work: rows of its execution plan when it has one, the session's
    task list otherwise. Never in the records, which hold no order of work.
-3. Rethink each new version rather than copying the proposal: measure what its callers and real data need.
-   Record every departure from the proposal in the finding's entry in the step's fix file.
+3. Rethink each new version rather than copying the proposal: measure what its callers and real data need,
+   with temporary scripts, as [fixing.md](references/fixing.md) describes. Record every departure from the
+   proposal in the finding's entry in the step's fix file.
 4. Close each finding in the step's fix file, `docs/audit/<audit>/<app>/fixes/<STEP>.json`, or
    `docs/audit/<audit>/shared/fixes/<STEP>.json` for a shared finding, with its proofs: a test that fails without the fix, a search or a file's text for a fact about the files
    themselves, or, for a pure matter of taste in the UI audit, a look by eye recorded with its screenshot. A

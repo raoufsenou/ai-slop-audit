@@ -55,6 +55,15 @@ problem, and the kind comes back unseen. Pin an instance only where the title na
 An eye proof is the last resort. It says what was compared with what, and it is never used where a
 measurement exists. Only the UI audit uses one.
 
+## What a step measures with
+
+A step measures the defect before its fix, so its proof can be shown to fail, and the fixed screen or module
+after. Its scripts load the toolkit the config names, live in the system's temporary folder, and are deleted
+when the step closes: their numbers go in the proofs' notes, and what a later run would write again, a
+helper or a check, goes in the toolkit, committed with the step. A measurement worth repeating on every
+change becomes a test the project's gates run; where the project runs no tests of that kind, such as
+browser checks, it becomes a check in the toolkit, which every audit runs.
+
 ## Closing a finding
 
 1. The proof passes on the fixed code, and the project's gates for the step pass.
