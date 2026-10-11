@@ -811,6 +811,11 @@ const writtenRefusals = [
     'a drawing names the stylesheet assets/gone.css, which does not exist',
   ],
   [
+    'a drawing whose data-style holds a ">" names a stylesheet that does not exist',
+    WRITTEN.replace('data-w="1440"', 'data-w="1440" data-style=".x-modal>.q-modal{position:relative}" data-css="assets/gone.css"'),
+    'a drawing names the stylesheet assets/gone.css, which does not exist',
+  ],
+  [
     "its drawings' stylesheet loads a font from the site's root",
     WRITTEN,
     "assets/app.css loads /assets/geist.woff2 from the site's root, which a report opened from disk cannot reach: make it relative to assets/app.css",
@@ -827,6 +832,10 @@ for (const [name, html, expected, options] of writtenRefusals) {
 test("an id in a drawing is the app's, so it is not a finding's card", () => {
   const errors = writtenReport(WRITTEN.replace('id="B3"', 'id="b3"').replace('id="B9"', 'id="B3"'))
   assert.ok(errors.includes('B3 was raised in v2, but the report has no element with id="B3"'), errors.join('\n'))
+})
+
+test('a ">" inside a drawing\'s data-style, as in a child selector, does not end its tag', () => {
+  assert.deepEqual(writtenReport(WRITTEN.replace('data-w="1440"', 'data-w="1440" data-style=".x-modal>.q-modal{position:relative}"')), [])
 })
 
 test('a withdrawn finding has no card, and the report says it was withdrawn', () => {

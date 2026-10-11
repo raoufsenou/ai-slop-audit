@@ -1262,7 +1262,7 @@ export function checkReport(records, html, exists, written = null, linked = null
   // A drawing's markup is the app's: its links and ids are none of the report's, though its images load from the
   // report's folder.
   const drawings = []
-  const markup = strip(html).replace(/(<template\b[^>]*>)([\s\S]*?)(<\/template\s*>)/gi, (whole, open, inner, close) => {
+  const markup = strip(html).replace(/(<template\b(?:[^>"']|"[^"]*"|'[^']*')*>)([\s\S]*?)(<\/template\s*>)/gi, (whole, open, inner, close) => {
     drawings.push(inner)
     return `${open}${close}`
   })
@@ -1542,7 +1542,7 @@ function checkLayout(audit, folder, entries, read, roots, errors) {
 // The files of its folder a report names: what its markup loads or links, and what its drawings load.
 function filesNamed(html) {
   const drawings = []
-  const markup = strip(html).replace(/(<template\b[^>]*>)([\s\S]*?)(<\/template\s*>)/gi, (whole, open, inner, close) => {
+  const markup = strip(html).replace(/(<template\b(?:[^>"']|"[^"]*"|'[^']*')*>)([\s\S]*?)(<\/template\s*>)/gi, (whole, open, inner, close) => {
     drawings.push(inner)
     return `${open}${close}`
   })
