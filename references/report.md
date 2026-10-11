@@ -154,9 +154,11 @@ docs/audit/<audit>/<app>/reports/vN/
   `03-issue-first-credential.py`. Running the steps in number order repeats the capture. Only a step's name
   starts with a digit. Every other file, such as a helper the steps load, a script run in the page, or a
   file the steps pass between them, is named in lowercase words joined by hyphens, and a module the steps
-  import in one word, as `lib.py`.
-- A script finds the report's folder from its own place, never from the project's absolute path, so a later
-  version that copies it writes into its own folder.
+  import in one word, as `lib.py`. What a later capture would write again, a helper or a check, goes in the
+  toolkit the config names, which the steps load, as [records.md](records.md) describes; a helper here is
+  this capture's alone.
+- A script finds the report's folder and the toolkit from its own place, never from the project's absolute
+  path, so a later version that copies it writes into its own folder.
 - `shots/` holds files alone. Each screenshot is named for what it shows, in lowercase words joined by
   hyphens, then the window it was taken in, `-desktop` at 1440 × 900 or `-phone` at 390 × 844, as
   `activity-filtered-desktop.png`. A part of one is cut in the report with a band, never saved as a file of

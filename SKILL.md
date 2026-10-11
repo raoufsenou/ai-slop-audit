@@ -44,7 +44,8 @@ which is the project's root in a Git repository; with an audit alone, every app'
 neither, every app's in both. `shared` names the audit's shared records, which it checks against every app's
 records, as it checks each app's against them. Every run verifies each proof of a done or accepted finding against the
 files: it counts each search again, today and at the audited commit, and confirms each test is still
-declared under its title. `--report` also checks the latest version's report, as report.md describes;
+declared under its title. It also confirms that the toolkit an app's config names is a folder Git keeps.
+`--report` also checks the latest version's report, as report.md describes;
 `--complete` also refuses any finding still open, accepted, regressed, or triggered, and any proposal still
 waiting for its answer. On a pass it prints what each version raised and re-checked, then where each
 finding stands. Its own tests: `node --test <this skill>/assets/checker/records.test.mjs`.
@@ -52,7 +53,8 @@ finding stands. Its own tests: `node --test <this skill>/assets/checker/records.
 ## Modes
 
 Infer the mode from the request. With none: `import` when an audit report exists and no records do,
-otherwise `audit`.
+otherwise `audit`. A request only to set up the toolkit is no mode: set it up, as
+[records.md](references/records.md) describes, run the checker, and stop.
 
 - `audit` — run the next version: re-check every earlier finding, look for new ones, write the report,
   record both in the version's file, and stop for the maintainer's verdicts.
@@ -84,7 +86,8 @@ and a fan-out write the same files. Only `reconcile` writes the audit's shared r
 Before starting any agent, the coordinator:
 
 1. Confirms that no one outside the run is working in the project, and records the fan-out where the
-   project tracks work: the audit, the apps, the commit, and each app's folder.
+   project tracks work: the audit, the apps, the commit, and each app's folder. When the apps' configs name
+   no toolkit, it sets one up for every agent to load, as [records.md](references/records.md) describes.
 2. Adds `docs/audit/*/*/reports/` to `.gitignore` when it is missing.
 3. Has the maintainer confirm the severity definitions of each app without records in this audit, when the
    project gives none, one question at a time, so no agent has to ask.
@@ -92,7 +95,7 @@ Before starting any agent, the coordinator:
    of its own that the project does not use for development, with its own copy of the data, as the audit's
    reference describes. It writes down each server's process ID.
 5. Starts one agent per app, telling it the audit, its app, folder, code, address, and commit; its confirmed
-   severity definitions; the code it shares with other apps; and its siblings and their folders.
+   severity definitions; the toolkit; the code it shares with other apps; and its siblings and their folders.
 
 A fan-out of `report` serves nothing and gives no address. Of steps 2 to 4 the coordinator does only the
 build, in the UI audit, for an app whose production build the capture used is gone, as step 5 of `report`
@@ -100,24 +103,25 @@ allows, and tells each agent where its app's build is.
 
 Each agent runs the mode for its app, with four differences:
 
-- It writes only in its app's folder. It builds nothing, starts or stops no server, changes neither the
-  plan nor `.gitignore`, and commits nothing.
+- It writes only in its app's folder. It builds nothing, starts or stops no server, changes none of the
+  plan, `.gitignore`, and the toolkit, and commits nothing. A helper or check it would add to the toolkit,
+  it keeps in its capture and names to the coordinator.
 - It captures from the address it was given, in the UI audit with a browser of its own; in `report` it
   captures nothing, and its browser only opens the page.
-- Changes in a sibling's folder are the sibling's; changes to the plan and `.gitignore` are the
-  coordinator's. Any other change it did not make means someone outside the run is working in the
+- Changes in a sibling's folder are the sibling's; changes to the plan, `.gitignore`, and the toolkit are
+  the coordinator's. Any other change it did not make means someone outside the run is working in the
   project: it stops and tells the coordinator, which stops every agent and server and says so.
 - It never asks the maintainer anything. At step 9 of `audit` or step 8 of `report`, or wherever a single
   run would stop to ask, it returns that to the coordinator, which asks and, once answered, finishes that
   app's run itself.
 
 When every app's run is done, the coordinator stops any servers it started, by their process IDs,
-closes the fan-out's entry where it recorded it, and runs `reconcile` itself, so each change to shared code
-reaches the maintainer once. It gives the maintainer the shared report and each app's report and summary,
-then the decisions one question at a time: the shared findings first, since an app's finding cut down to
-its own part depends on them, then each app's, naming each finding as shared or with its app, since every
-folder counts its own IDs. Asked to commit, it commits its own changes first, then the shared records, then
-each app's records separately.
+closes the fan-out's entry where it recorded it, adds to the toolkit what the agents named for it, and runs
+`reconcile` itself, so each change to shared code reaches the maintainer once. It gives the maintainer the
+shared report and each app's report and summary, then the decisions one question at a time: the shared
+findings first, since an app's finding cut down to its own part depends on them, then each app's, naming
+each finding as shared or with its app, since every folder counts its own IDs. Asked to commit, it commits
+its own changes first, then the shared records, then each app's records separately.
 
 ## What keeps a run from changing its mind
 
@@ -140,23 +144,31 @@ it raised before. These rules exist to stop that; they are the point of the skil
    a version that skips one.
 5. **The bar is written down once.** Severity is judged by the config's own definitions and the design by
    its design authority. Changing either is a maintainer decision, made in the config, not a run's choice.
+6. **Every run measures with the same tools.** What the audit's scripts share lives in its toolkit, the
+   folder the config names, committed with the records, so a fresh clone holds it: the helpers that open,
+   drive, and measure the app, and a check for each kind of problem found. Every capture and every fix
+   loads it and adds what a later run would otherwise write again, and every version runs each of its
+   checks across everything it covers. A run whose checker refuses a config for naming none sets one up
+   before its own work, as [records.md](references/records.md) describes.
 
 ## Safety
 
 - Read the project's instructions first (`AGENTS.md`, `CLAUDE.md`, the README, its plan). Where they
   conflict with this skill, they win; say so.
-- `audit` changes no tracked file except its own file in the records, the `.gitignore` line for the reports
-  once per project, and a fan-out's entry where the project tracks work. It captures from a production
-  build of the commit it records, serves copies of real data, and points every paid or external call at an
-  address that refuses it. It never runs a paid operation.
+- `audit` changes no tracked file except its own file in the records, the toolkit, the `.gitignore` line
+  for the reports once per project, and a fan-out's entry where the project tracks work. It captures from
+  a production build of the commit it records, serves copies of real data, and points every paid or
+  external call at an address that refuses it. It never runs a paid operation.
 - `report` changes no tracked file except the latest version's file in the records, and a fan-out's entry
   where the project tracks work. It starts no server, and builds only as its step 5 allows.
 - `reconcile` changes no tracked file except the audit's shared records and the latest version's file of
   each app it reconciles. It captures nothing, builds nothing, and starts no server.
+- In any mode, setting up the toolkit, as [records.md](references/records.md) describes, also changes the
+  toolkit and each app's config that names none.
 - If anyone outside the run is working in the project, another session or a person, write nothing there.
   Say so and stop. A fan-out's coordinator and agents are one run.
-- Commit nothing unless asked. The records are committed with the work that changes them; reports and
-  screenshots stay in the app's `reports/`, which git ignores.
+- Commit nothing unless asked. The records and the toolkit are committed with the work that changes them;
+  reports and screenshots stay in the app's `reports/`, which git ignores.
 - Never delete an earlier version's report, and never edit or delete an earlier records file, except to
   correct the latest version's file before its first round of verdicts, as
   [records.md](references/records.md) describes. A finding that no longer applies is re-checked as
@@ -174,13 +186,14 @@ it raised before. These rules exist to stop that; they are the point of the skil
    new version and its scope: everything the audit covers, or the part the maintainer named.
 3. Tidy each earlier version's report folder, as [report.md](references/report.md) describes. Capture the
    app as the audit's reference describes, at the size real use reaches, into
-   `docs/audit/<audit>/<app>/reports/vN/`. Add `docs/audit/*/*/reports/` to `.gitignore` when it is
-   missing.
+   `docs/audit/<audit>/<app>/reports/vN/`, with the toolkit the config names, set up first when it names
+   none. Add `docs/audit/*/*/reports/` to `.gitignore` when it is missing.
 4. Re-check every earlier finding that is not rejected or obsolete, before looking for anything new: the
-   checker has run the proofs of every done finding, and look again at each finding's `where`. Write one
-   re-check per finding, with the outcomes [records.md](references/records.md) lists and what was observed.
-   A done finding that broke again is `regressed`. A deferred finding whose trigger has fired is
-   `triggered`, and goes to the maintainer for a decision.
+   checker has run the proofs of every done finding; run every check the toolkit holds across everything
+   the version covers, and look again at each finding's `where`. Write one re-check per finding, with the
+   outcomes [records.md](references/records.md) lists and what was observed. A done finding that broke
+   again is `regressed`. A deferred finding whose trigger has fired is `triggered`, and goes to the
+   maintainer for a decision.
 5. Look for new findings with the audit's reference, through everything it covers. For each candidate:
    search the records; check it against the principles, rejections, out-of-scope list, and cleared items;
    measure it; give it a kind and a severity by the config's standards; and design its new version from

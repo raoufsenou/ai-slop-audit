@@ -20,8 +20,8 @@ see on a screen belongs to the [UI audit](ui.md), wherever its cause lies.
   durations, sizes) to `facts.jsonl`, from which each card takes the numbers it needs; [report.md](report.md)
   gives the folder's layout and its names. No browser and no screenshot: a non-UI finding's evidence is the
   code and the measurements.
-- Prefer the project's own committed measuring tools where they exist. A measurement that will become a
-  proof belongs in the project, not in the report's folder.
+- Load the toolkit the config names, and prefer the project's own committed measuring tools where they
+  exist. A measurement that will become a proof belongs in the project, not in the report's folder.
 - Write every command in the report's capture appendix, so the next version can repeat the capture.
 
 ## What to look for

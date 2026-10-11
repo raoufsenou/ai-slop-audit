@@ -22,6 +22,9 @@ folder Codex reads skills from, which Cursor reads too. Agents use that copy, no
 here does nothing until you reinstall. Without `--replace`, an install that differs is listed file by file and
 left as it is.
 
+Reinstall when no run is in progress. An agent reads the skill once, when it starts, but runs the installed
+checker every time, so a run that began before the update meets rules it never read.
+
 ## The loop
 
 Open the agent in the project's repository and give it one prompt per step. Begin each with
@@ -86,6 +89,15 @@ node ~/.codex/skills/app-slop-audit/assets/checker/check-records.mjs ui
 node ~/.codex/skills/app-slop-audit/assets/checker/check-records.mjs ui --report
 ```
 
+When the checker says an app's `config.json` names no toolkit, its records were written before toolkits. The
+next run, in any mode, sets one up before its own work: it gathers the helpers and checks the earlier
+captures and fixes wrote, each once, into the folder where the project keeps its tools, and names that folder
+in each app's config. To do only that:
+
+```
+Use $app-slop-audit to set up the toolkit of the UI audit.
+```
+
 When the records pass but their reports do not, and no verdict is recorded yet, rewrite the reports before
 deciding anything:
 
@@ -124,6 +136,9 @@ docs/audit/non-ui/            the non-UI audit, laid out the same way
 
 `reports/` is never committed, so it lives only on the machine that made it. Keep it: the checker's
 `--report` refuses an app whose earlier report is gone.
+
+The toolkit lives where the project keeps its tools, such as `tools/audit/`, and each app's `config.json`
+names it: the helpers and checks every capture and fix loads, committed so a fresh clone holds them.
 
 ## See where an audit stands
 

@@ -22,7 +22,7 @@ which the next version checks again.
 docs/audit/
   ui/                        the UI audit's records
     <app>/                   one folder per audited app, named for it
-      config.json            the standards, the areas, and what the design leaves out
+      config.json            the standards, the areas, what the design leaves out, and the toolkit
       v1.json                audit v1: its commit, its report, and what it raised and cleared
       v1-verdicts.json       the maintainer's first round of verdicts on v1, and the principles they settle
       v1-verdicts-2.json     a second round on v1, when there is one
@@ -47,7 +47,8 @@ path is relative to the project's root and stays inside it.
 
 ## config.json
 
-The bar every version judges by, written once and changed only by the maintainer's decision.
+The bar every version judges by, written once and changed only by the maintainer's decision, and where the
+toolkit every version measures with is kept.
 
 ```json
 {
@@ -65,7 +66,8 @@ The bar every version judges by, written once and changed only by the maintainer
   ],
   "outOfScope": [
     { "what": "Editing a value in place; every change is a request for changes.", "source": "`docs/DESIGN.md`, Left Out" }
-  ]
+  ],
+  "toolkit": "tools/audit"
 }
 ```
 
@@ -79,6 +81,21 @@ The bar every version judges by, written once and changed only by the maintainer
   visual system). Choose what makes a finding's place obvious, then keep it.
 - `outOfScope` lists what the design leaves out on purpose, each with where that was decided, so no version
   raises it.
+- `toolkit` names the folder, from the project's root, where the audit keeps what its scripts share: the
+  helpers that open, drive, and measure the app, and a check for each kind of problem found, which every
+  version runs across everything it covers. Committed with the records, it is there in a fresh clone, so no
+  run writes them again. An app's config names it once one of its versions has a report in its `reports/`,
+  which a capture made with scripts; the shared records name none, since a reconcile runs no script.
+  Several apps, and both audits, may name the same folder.
+
+Records made before the toolkit name none, and the checker refuses those of an app that captured until they
+do. A run that meets that refusal, or that captures or measures for an app whose config names none, sets
+one up before its own work: into the folder where the project keeps its tools, such as `tools/audit/`, it
+gathers the helpers and checks that earlier captures and fixes wrote, from the report folders and wherever
+else the project kept them, each once, merged where copies differ, or, with none left, what the next capture
+needs; then it names that folder in every app's config of the audit that names none. The earlier report
+folders keep their own copies, unchanged. It is the one entry a run adds to a config without the
+maintainer's decision, since it changes how the audit measures, not what it judges.
 
 ## vN.json: an audit
 
@@ -358,7 +375,9 @@ a decided version never changes. The checker reads every app's records when it c
 ## What the checker cannot see
 
 It checks that a proof exists and could fail, not that it fails on each defect the finding's title names;
-that a test is declared, not that it passes; that a re-check is recorded, not that it was done; and that an
+that a test is declared, not that it passes; that the toolkit is a folder Git keeps, not that every capture
+and fix measured with it and left in it what a later run would write again; that a re-check is recorded,
+not that it was done; and that an
 ID is new, not that its problem is not already in the records under another; that the config changed only
 by the maintainer's decision; that a version's file was corrected only before its first round of
 verdicts; and that a reconcile found every finding about shared code, since it holds to account only the

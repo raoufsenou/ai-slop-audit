@@ -111,9 +111,10 @@ const SHAPES = {
 }
 
 // The keys only the shared records take, and those only an app's take: a shared version reconciles app versions and
-// its findings list the apps they reach, while an app's findings name the shared findings that took them.
+// its findings list the apps they reach, while an app's findings name the shared findings that took them, and its
+// config names the toolkit its captures load, since a reconcile runs no script.
 const SHARED_KEYS = { audit: { reconciled: 'list', code: 'list', 'local?': 'list' }, finding: { apps: 'list' } }
-const APP_KEYS = { finding: { 'shared?': 'someTexts' }, withdrawal: { 'shared?': 'text' } }
+const APP_KEYS = { config: { 'toolkit?': 'path' }, finding: { 'shared?': 'someTexts' }, withdrawal: { 'shared?': 'text' } }
 const shapeOf = (records, name) => ({ ...SHAPES[name], ...(records.shared ? SHARED_KEYS : APP_KEYS)[name] })
 
 const PROOF_SHAPES = {
@@ -205,12 +206,12 @@ function readFiles(files, errors) {
   return read
 }
 
-function readConfig(data, errors) {
+function readConfig(data, shape, errors) {
   if (data === null) {
     errors.push('there is no config.json')
     return null
   }
-  if (!checkShape(data, SHAPES.config, 'config.json', errors)) return null
+  if (!checkShape(data, shape, 'config.json', errors)) return null
   if (data.format !== FORMAT) errors.push(`config.json's format is "${data.format}", where these records are read as "${FORMAT}"`)
   for (const name of STANDARDS) {
     if (!has(data.standards, name)) errors.push(`config.json's standards give no ${name}`)
@@ -234,7 +235,7 @@ function readConfig(data, errors) {
     if (outOfScope.has(item.what)) errors.push(`config.json leaves "${item.what}" out of scope twice`)
     outOfScope.add(item.what)
   }
-  return { areas, outOfScope }
+  return { areas, outOfScope, toolkit: data.toolkit ?? null }
 }
 
 function readFixFiles(read, errors) {
@@ -822,7 +823,7 @@ export function checkRecords(files, { complete = false, audit = 'ui', shared = f
     audit,
     shared,
     links: [],
-    config: readConfig(read.config, errors),
+    config: readConfig(read.config, shapeOf({ shared }, 'config'), errors),
     versions: [],
     findings: new Map(),
     withdrawn: new Map(),

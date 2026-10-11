@@ -18,8 +18,8 @@ belongs to the [non-UI audit](non-ui.md).
   and the measurements each finding cites (heights, contrast ratios, counts, durations) in `facts.jsonl`,
   from which each card takes the numbers it needs. [report.md](report.md) gives the folder's layout and its
   names.
-- Prefer the project's own committed measuring tools where they exist. A measurement that will become a
-  proof belongs in the project, not in the report's folder.
+- Load the toolkit the config names, and prefer the project's own committed measuring tools where they
+  exist. A measurement that will become a proof belongs in the project, not in the report's folder.
 - Write every command in the report's capture appendix, so the next version can repeat the capture.
 
 ## What to look for

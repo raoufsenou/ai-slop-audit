@@ -40,6 +40,7 @@ function valid({ audited = 'ac386b3', later = '1999623' } = {}) {
         { letter: 'B', name: 'Words', covers: 'what the app says' },
       ],
       outOfScope: [{ what: 'Editing a value in place.', source: '`docs/DESIGN.md`, Left Out' }],
+      toolkit: 'tools/audit',
     },
     'v1.json': {
       date: '2026-10-08',
@@ -220,6 +221,7 @@ function project(change = () => {}) {
   write(root, 'src/run.tsx', 'export const Run = () => <p aria-live="polite" />\n')
   write(root, 'tests/course.spec.ts', "test('the window never scrolls', async () => {})\n")
   write(root, 'package.json', `${JSON.stringify({ description: 'Plans courses', devDependencies: { typescript: '^7' } })}\n`)
+  write(root, 'tools/audit/lib.py', 'def window(page, name):\n    pass\n')
   const records = valid({ audited, later: audited })
   change(records, audited)
   writeRecords(root, records)
@@ -249,6 +251,7 @@ const refusals = [
   ['the format is another', (r) => (r['config.json'].format = 'app-slop-audit records 2'), 'format is "app-slop-audit records 2"'],
   ['a severity is not defined', (r) => delete r['config.json'].standards.high, "config.json's standards give no high"],
   ['the config has a key the format does not name', (r) => (r['config.json'].owner = 'me'), 'has "owner", which the format does not name'],
+  ['the toolkit is outside the project', (r) => (r['config.json'].toolkit = '../tools'), "config.json's toolkit is not a path inside the project, from its root"],
   ['an area takes the principles\' letter', (r) => (r['config.json'].areas[1].letter = 'P'), 'other than P, which principles use'],
   ['an area is declared twice', (r) => (r['config.json'].areas[1].letter = 'A'), 'declares area A twice'],
   [
@@ -902,6 +905,40 @@ test("an app's reports/ is no part of its records, and Git must ignore it", () =
   assert.deepEqual(runCheck({ root, audit: 'ui', app: 'course' }).errors, [])
 })
 
+const toolkitRefusals = [
+  [
+    'names none',
+    (r) => delete r['config.json'].toolkit,
+    "config.json names no toolkit, the committed folder of the helpers and checks the audit's scripts share: set one up before anything else, as records.md describes",
+  ],
+  ['names a folder that does not exist', (r) => (r['config.json'].toolkit = 'tools/gone'), "config.json's toolkit, tools/gone, is not a folder of the project"],
+  ['names a file', (r) => (r['config.json'].toolkit = 'tools/audit/lib.py'), "config.json's toolkit, tools/audit/lib.py, is not a folder of the project"],
+]
+
+for (const [name, change, expected] of toolkitRefusals) {
+  test(`an app whose reports this skill wrote is refused when its config ${name}`, () => {
+    const { root } = project(change)
+    assert.deepEqual(runCheck({ root, audit: 'ui', app: 'course' }).errors, [expected])
+  })
+}
+
+test('a toolkit holding no file Git tracks or would add is refused, since a fresh clone would not hold it', () => {
+  const { root } = project()
+  write(root, '.gitignore', 'tools/\n')
+  assert.deepEqual(runCheck({ root, audit: 'ui', app: 'course' }).errors, [
+    "config.json's toolkit, tools/audit, holds no file Git tracks or would add, so a fresh clone would not hold it: keep it where Git does not ignore it, and commit it with the records",
+  ])
+})
+
+test('an app whose every report was imported, so no capture of its ran here, needs no toolkit', () => {
+  const { root } = project((r) => {
+    delete r['config.json'].toolkit
+    r['v1.json'].report = 'docs/review-v1.html'
+    r['v2.json'].report = 'docs/review.html'
+  })
+  assert.deepEqual(runCheck({ root, audit: 'ui', app: 'course' }).errors, [])
+})
+
 // An app's reports/ in the layout report.md gives: v1's folder, written before v2's, with the screenshot of B2's eye
 // proof, and v2's, the latest.
 const FOLDERS = {
@@ -1164,14 +1201,14 @@ function reconciled({ commit = 'ac386b3' } = {}) {
   const version = (app, more) => ({ date: '2026-10-08', commit, scope: 'Every screen and state', report: `docs/audit/ui/${app}/reports/v1/review.html`, ...more })
   return {
     admin: {
-      'config.json': config(layout),
+      'config.json': { ...config(layout), toolkit: 'tools/audit' },
       'v1.json': version('admin', {
         raised: [raisedFinding('A2', 'the settings page', 'one column')],
         withdrawn: [{ id: 'A1', why: 'the frame scrolls in every app, which the shared F1 changes once', shared: 'F1' }],
       }),
     },
     bank: {
-      'config.json': config(layout, { letter: 'B', name: 'Words', covers: 'what the app says' }),
+      'config.json': { ...config(layout, { letter: 'B', name: 'Words', covers: 'what the app says' }), toolkit: 'tools/audit' },
       'v1.json': version('bank', {
         raised: [
           raisedFinding('A1', 'the transfer page, whose frame is packages/design/src/frame.tsx', 'the balance stays in view', { shared: ['F1'] }),
@@ -1275,6 +1312,7 @@ const sharedRefusals = [
     'v1.json: F1 lists admin twice among its apps',
   ],
   ['a shared finding names shared findings', 'shared', (r) => (r['v1.json'].raised[0].shared = ['F2']), 'has "shared", which the format does not name'],
+  ['the shared records name a toolkit', 'shared', (r) => (r['config.json'].toolkit = 'tools/audit'), 'has "toolkit", which the format does not name'],
   ['a finding is kept local twice', 'shared', (r) => r['v1.json'].local.push(r['v1.json'].local[0]), "v1.json keeps bank's B1 local twice"],
   ["an app's finding lists apps", 'bank', (r) => (r['v1.json'].raised[1].apps = []), 'has "apps", which the format does not name'],
   ["an app's version reconciles", 'bank', (r) => (r['v1.json'].reconciled = []), 'has "reconciled", which the format does not name'],

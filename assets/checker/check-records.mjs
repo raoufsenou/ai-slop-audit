@@ -164,6 +164,20 @@ function checkAcross(root, audit, app, records) {
   return { errors: checkLinks(records, read.records), linked: { cards } }
 }
 
+// The toolkit an app's config names, against the project: a folder holding files Git tracks or would add, so a fresh
+// clone holds it. An app with a report in its reports/ captured with scripts, so its config names one.
+function checkToolkit(root, folder, records, look) {
+  const { toolkit } = records.config
+  if (toolkit === null) {
+    const captured = !records.shared && records.versions.some((version) => version.report === `${folder}/${REPORTS}/${version.label}/review.html`)
+    return captured ? ["config.json names no toolkit, the committed folder of the helpers and checks the audit's scripts share: set one up before anything else, as records.md describes"] : []
+  }
+  const absolute = resolve(root, toolkit)
+  if (!existsSync(absolute) || !statSync(absolute).isDirectory()) return [`config.json's toolkit, ${toolkit}, is not a folder of the project`]
+  if (look.list([toolkit], null).length > 0) return []
+  return [`config.json's toolkit, ${toolkit}, holds no file Git tracks or would add, so a fresh clone would not hold it: keep it where Git does not ignore it, and commit it with the records`]
+}
+
 export function runCheck({ root, audit, app, complete = false, report = false, look = projectLook(root) }) {
   const records = `${RECORDS}/${audit}/${app}`
   const folder = resolve(root, records)
@@ -172,6 +186,7 @@ export function runCheck({ root, audit, app, complete = false, report = false, l
   const errors = [...result.errors]
   const reports = `${records}/${REPORTS}`
   if (existsSync(resolve(root, reports)) && !look.ignores(reports)) errors.push(`Git does not ignore ${reports}/: add ${RECORDS}/*/*/${REPORTS}/ to .gitignore`)
+  if (result.records.config) errors.push(...checkToolkit(root, records, result.records, look))
   let verified = 0
   let linked = null
   if (errors.length === 0) {
