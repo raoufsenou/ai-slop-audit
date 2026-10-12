@@ -71,6 +71,75 @@ browser checks, it becomes a check in the toolkit, which every audit runs.
    worked on it. Nobody writes its status; the entry makes it `done`.
 3. Run the checker.
 
+## One agent per app
+
+When the maintainer asks for one agent per app and for the fixes committed, each app's own steps run at once,
+one agent per app, started by this session, the coordinator. Every step that changes a path two apps use stays
+with the coordinator: the design authority, the shared foundations, and the shared findings before any agent
+starts, and the rest once every branch is merged. Steps held for the maintainer stay with it too. Each agent
+works in a Git worktree of its own, on a branch of its own, and changes only the paths it owns, so no two
+branches change one file and every merge is clean.
+
+An agent owns its app's own code, such as `apps/admin`, and its app's records folder,
+`docs/audit/<audit>/<app>/`. Everything else is the coordinator's: the code two apps use, the design
+authority, the plan, the toolkit, the shared records, and the project's configuration, manifests, and lock
+files. While an agent runs, the coordinator changes none of its paths.
+
+While the fan-out runs, every command that installs, builds, tests, serves, or measures the project, the
+coordinator's included, goes through the queue: `node <this skill>/assets/fanout/fanout.mjs run -- <command>`.
+It runs one such command at a time across the project's checkout and all its worktrees, which share the
+machine's databases, ports, and processors, so no two suites run against one database. A server holds the
+queue until it stops, so a measurement starts and stops its server within one queued command. The checker
+reads only files and Git, and needs no queue.
+
+Before any agent starts, the coordinator:
+
+1. Commits the steps before the fan-out, confirms that the working tree is clean and that no one outside the
+   run is working in the project, and records the fan-out in the plan: the audit, the commit it starts from,
+   and each agent's app, branch, worktree, paths, and steps.
+2. Adds a worktree for each app on a branch of its own from that commit, outside the project's folder, where
+   the project's own tools never look: `git worktree add -b <audit>-apply/<app> ../<project>-<audit>-apply/<app> <commit>`.
+3. Prepares each worktree as the project prepares a new checkout: installs its dependencies, and copies the
+   ignored local files its commands need, such as environment files, without showing what they hold.
+4. Starts one agent per app, telling it the audit, its app, worktree, branch, paths, and steps; the toolkit;
+   the code it shares with other apps; and the queue.
+
+Each agent applies its steps as the sections above describe, with these differences:
+
+- It works only in its worktree and changes only its paths. A fix that needs another path, it does not make:
+  it returns what that path needs and why, and goes on with a step that does not wait on it.
+- It commits each step on its branch once the step's proofs and gates pass and the checker passes for its app.
+- It writes only its app's fix files. An entry for a shared finding, and a helper or check it would add to the
+  toolkit, it returns, keeping the helper's file in the system's temporary folder until the coordinator has
+  added it.
+- It changes nothing in the plan and never asks the maintainer anything. Where a single run would stop to
+  ask, it skips the step, returns the question, and goes on with a step that does not wait on it.
+- It returns, for each step, what it built and why, its departures, its commits, and its proofs' measurements,
+  which the coordinator records in the plan.
+
+As each agent returns, the coordinator merges its branch, one branch at a time, from the project's checkout:
+
+1. It runs `node <this skill>/assets/fanout/fanout.mjs owns <branch> <path>...` with the agent's paths, which
+   refuses a branch that changed any other path since it left the project's branch, or whose worktree holds
+   work no commit has.
+2. A refused branch is not merged as it is. For a path the agent does not own, the coordinator makes the
+   change it needed in a step of its own on the project's branch, commits that path on the agent's branch as
+   the fan-out's commit holds it, and checks again. Uncommitted work is a step the agent did not finish, which
+   the coordinator finishes in the worktree or hands back to the agent.
+3. It merges with `git merge --no-ff <branch>`, which keeps the agent's commits as they are.
+4. It writes the shared entries the agent returned in the fix files of their steps in
+   `docs/audit/<audit>/shared/fixes/`, adds to the toolkit what the agent named, and records the agent's steps
+   in the plan, with a step of its own for each path the agent needed. It runs the checker for the whole
+   audit, since the shared records are checked against every app's, and commits.
+5. It removes the worktree, then the branch: `git worktree remove <worktree>` and `git branch -d <branch>`.
+
+When every branch is merged, the coordinator runs the project's complete gates, asks the maintainer each
+question the agents returned, one at a time, closes the fan-out's entry in the plan, and goes on with the
+steps that remain.
+
+The queue and the ownership check are `assets/fanout/fanout.mjs`. Run it from this skill's folder; never copy
+it into a project. Its tests: `node --test <this skill>/assets/fanout/fanout.test.mjs`.
+
 ## Closing the round
 
 When every accepted finding is done, run the checker with `--complete`. The round is closed. The next

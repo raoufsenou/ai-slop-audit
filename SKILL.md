@@ -77,11 +77,13 @@ app. It holds the app's records and, in `reports/`, which git ignores, each vers
 and a fan-out write the same files. Only `reconcile` writes the audit's shared records, in `shared/`.
 
 - A **single run** audits one app. This session does every step.
-- A **fan-out** audits several apps at once, in one audit, one agent per app, started by this session, the
-  coordinator. Only `audit` and `report` fan out. `decide` stays in one session because the maintainer
-  answers one question at a time, and `apply` because it changes code the apps may share. Either may write
-  in several apps' folders when one decision or one fix covers them. `reconcile` stays in one session too,
-  because it weighs every app's findings together.
+- A **fan-out** works on several apps at once, in one audit, one agent per app, started by this session, the
+  coordinator. `audit` and `report` fan out as the rest of this section describes. `decide` stays in one
+  session because the maintainer answers one question at a time, and `apply` fans out only each app's own
+  steps, each agent in a Git worktree of its own and changing only the paths it owns, as
+  [fixing.md](references/fixing.md#one-agent-per-app) describes, because the code the apps share must change
+  once and in order. Either may write in several apps' folders when one decision or one fix covers them.
+  `reconcile` stays in one session too, because it weighs every app's findings together.
 
 Before starting any agent, the coordinator:
 
@@ -169,6 +171,10 @@ it raised before. These rules exist to stop that; they are the point of the skil
   Say so and stop. A fan-out's coordinator and agents are one run.
 - Commit nothing unless asked. The records and the toolkit are committed with the work that changes them;
   reports and screenshots stay in the app's `reports/`, which git ignores.
+- A fan-out of `apply` adds a worktree and a branch for each agent, commits each step on its agent's branch,
+  and merges each branch into the project's, so it runs only when the maintainer asked for the fixes
+  committed and the project's instructions or the maintainer allow those Git operations. It removes only the
+  worktrees and branches it added.
 - Never delete an earlier version's report, and never edit or delete an earlier records file, except to
   correct the latest version's file before its first round of verdicts, as
   [records.md](references/records.md) describes. A finding that no longer applies is re-checked as
@@ -361,5 +367,7 @@ Stop and ask one framed question when:
 - a finding's verdict cannot be found and the maintainer has not given one;
 - two sources of design authority disagree;
 - a fix would contradict a principle, a rejection, or the design authority;
+- a fan-out of `apply` needs a Git operation, an install, or a copied file that neither the project's
+  instructions nor the maintainer allows;
 - a correction is asked of a version that a round of verdicts has already decided on; or
 - someone outside the run is working in the project.
