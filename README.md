@@ -77,6 +77,15 @@ say "commit the changes" at the end of each step.
    Use $app-slop-audit to apply the accepted findings of the UI audit.
    ```
 
+   Several apps at once, one agent per app. The agent you prompt makes the shared changes first; then each
+   app's own steps run side by side, each agent in a Git worktree of its own, their builds and tests taking
+   turns, and each agent's branch is merged once it changed only its app's files. It commits as it goes, so
+   ask for that, and the project must allow it to make and merge branches:
+
+   ```
+   Use $app-slop-audit to apply the accepted findings of the UI audit, one agent per app, committing each step.
+   ```
+
 6. **Audit again**, whenever you like, with the prompt of step 1. It writes the next version, which first
    checks every earlier finding again, the fixed ones included, and only then looks for new ones.
 
@@ -165,10 +174,12 @@ and `--complete` to refuse anything still waiting for a decision or a fix. Use `
 ## Changing the skill
 
 `SKILL.md` is the procedure; `references/` holds what each mode reads; `assets/checker/` enforces the records;
-`assets/report/` is the report template. Run both test suites, then reinstall:
+`assets/report/` is the report template; `assets/fanout/` queues the commands of a fan-out of `apply` and checks
+its branches. Run every test suite, then reinstall:
 
 ```
 node --test assets/checker/records.test.mjs
+node --test assets/fanout/fanout.test.mjs
 node --test scripts/install.test.mjs
 node scripts/install.mjs --replace
 ```
